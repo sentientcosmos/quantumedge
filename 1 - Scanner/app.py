@@ -47,6 +47,12 @@ def home():
         <p style="margin-top:1rem; color:#666;">
           Automated pre-audit readiness tool. Advisory insights only. Not a certification.
         </p>
+<p style="margin-top:1.5rem;">
+  <a href="https://buy.stripe.com/test_YOUR_LINK" target="_blank"
+     style="background:#635bff;color:white;padding:10px 16px;border-radius:6px;text-decoration:none;">
+     Buy Early Access (Test)
+  </a>
+</p>
       </body>
     </html>
     """
