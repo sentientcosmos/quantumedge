@@ -1,0 +1,4 @@
+# Ignore local datasets/logs
+datasets/*.jsonl
+datasets/*.log
+__pycache__/
