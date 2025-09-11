@@ -7,17 +7,48 @@ import os, json, pathlib
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 
+import re
+
 app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 
-# very simple rule set to start
-BLOCKLIST = [
-    "ignore all instructions",
-    "disregard previous instructions",
-    "reveal system prompt",
-    "act as developer mode",
-    "jailbreak",
-    "sudo",
+# REPLACE your existing BLOCKLIST with this compiled rule set.
+# Each rule has: (regex_pattern, severity, tag_for_reporting).
+_RULES = [
+    (r"\bignore (?:all|previous) instructions\b",  "medium", "ignore_instructions"),
+    (r"\bdisregard (?:all|previous) instructions\b","medium", "disregard_instructions"),
+    (r"\breveal (?:the )?system prompt\b",          "high",   "reveal_system_prompt"),
+    (r"\bact as (?:dan|developer mode)\b",          "medium", "act_as_dan"),
+    (r"\bjailbreak\b",                              "medium", "jailbreak"),
+    (r"\bsudo\b",                                   "medium", "sudo"),
+    (r"\bexfiltrat(?:e|ion)\b",                     "high",   "exfiltrate"),
+    (r"\bchmod\s+\+x\b",                            "medium", "chmod_exec"),
+    (r"\brm\s+-rf\b",                               "high",   "rm_rf"),
+    (r"\bcurl\s+https?://|\bwget\s+https?://",      "medium", "remote_fetch"),
+    (r"\bbase64\b",                                 "low",    "base64"),
 ]
+
+# Precompile rules once for efficiency
+_COMPILED = [(re.compile(pat, re.IGNORECASE), sev, tag) for (pat, sev, tag) in _RULES]
+
+# Severity ladder (decides which is "worst")
+_SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
+def _worst(a: str, b: str) -> str:
+    return a if _SEV_ORDER[a] >= _SEV_ORDER[b] else b
+
+def scan_text_rules(text: str):
+    """
+    Check text against all compiled rules.
+    Returns (list_of_flags, severity)
+    """
+    t = (text or "")
+    hits = []
+    sev = "low"
+    for rx, s, tag in _COMPILED:
+        if rx.search(t):
+            hits.append({"tag": tag, "regex": rx.pattern})
+            sev = _worst(sev, s)
+    return hits, sev
+# --- end shared rule engine ---
 
 DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
 
@@ -27,14 +58,16 @@ def log_event(event_name: str, props: Dict[str, Any]) -> None:
 
 @app.get("/scan")
 def scan(text: str = Query(..., description="Text to scan for prompt injection")):
-    lowered = text.lower()
-    hits = [p for p in BLOCKLIST if p in lowered]
+    # Use the shared rule-based scanner
+    flags, severity = scan_text_rules(text)
     result = {
-        "flagged": len(hits) > 0,
-        "matches": hits,
+        "flagged": len(flags) > 0,
+        "severity": severity,
+        "flags": flags,
         "disclaimer": DISCLAIMER,
     }
     return JSONResponse(result)
+
 
 class BatchReportInput(BaseModel):
     texts: List[str] = Field(..., description="Batch of texts to scan")
@@ -55,31 +88,14 @@ def _check_api_key(provided_key: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail="Forbidden. Valid API key required.")
 
 @app.post("/report", response_model=BatchReportOut)
-def report(payload: BatchReportInput, x_api_key: Optional[str] = Header(None)):
-    _check_api_key(x_api_key)
 
-    def scan_text(t: str) -> Tuple[List[Dict[str, Any]], str]:
-        lowered = (t or "").lower()
-        flags = []
-        # reuse your existing patterns in a simple way
-        for p in [
-            "ignore all instructions",
-            "disregard previous instructions",
-            "reveal system prompt",
-            "act as developer mode",
-            "jailbreak",
-            "sudo",
-        ]:
-            if p in lowered:
-                flags.append({"pattern": p})
-        severity = "high" if any("reveal system prompt" in f["pattern"] for f in flags) else ("medium" if flags else "low")
-        return flags, severity
 
     items: List[BatchReportItem] = []
     counts = {"low": 0, "medium": 0, "high": 0}
 
     for i, t in enumerate(payload.texts):
-        flags, severity = scan_text(t)
+        # use the shared rule engine so batch matches /scan
+    flags, severity = scan_text_rules(t)  # <-- NEW
         items.append(BatchReportItem(index=i, flags=flags, severity=severity))
         counts[severity] += 1
 
@@ -129,11 +145,11 @@ def home():
     return """
     <html>
       <head>
-        <title>QuantumEdge Prompt Scanner</title>
+        <title>QubitGrid Prompt Scanner</title>
         <meta charset="utf-8" />
       </head>
       <body style="font-family: sans-serif; max-width: 720px; margin: 2rem auto;">
-        <h2>QuantumEdge: Prompt Injection Scanner</h2>
+        <h2>QubitGrid: Prompt Injection Scanner</h2>
         <form action="/scan" method="get">
           <textarea name="text" rows="8" style="width:100%;" placeholder="Paste a prompt to scan..."></textarea>
           <br><br>
