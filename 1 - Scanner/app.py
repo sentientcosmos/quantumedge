@@ -21,6 +21,10 @@ from pydantic import BaseModel, Field                                # request/r
 from typing import List, Optional, Dict, Any, Tuple                  # type hints (make code & docs clearer)
 from datetime import datetime                                        # UTC timestamps for logs/dataset
 import os, json, pathlib, re                                         # env vars, file I/O, regex
+# Extra imports for serving HTML and static files
+from fastapi.responses import HTMLResponse   # lets FastAPI return HTML pages
+from fastapi.staticfiles import StaticFiles  # (future use) serve CSS/JS/images
+import pathlib                               # handle file paths safely
 
 
 # -------------------------
