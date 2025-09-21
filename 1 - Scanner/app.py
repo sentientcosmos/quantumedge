@@ -1,30 +1,28 @@
-"""
-QubitGrid™ Prompt Injection Scanner (MVP1)
-
-What this app does:
-  1) GET  /scan      → quick scan of a single text (via query string)
-  2) POST /report    → batch scan (JSON body), optional API-key gate
-  3) POST /feedback  → save human labels to a local JSONL dataset
-  4) GET  /          → tiny HTML page so humans can try it (RESULTS INLINE)
-  5) GET  /__version → quick version string (for deploy checks)
-  6) GET  /__rules   → shows rule count + sample regex patterns
-
-Key terms (plain English):
-- "payload": the JSON body you POST to an endpoint.
-- "flags":   which rules matched in the text (short tags + regex).
-- "severity": low/medium/high based on the worst matching rule.
-"""
+# app.py  — QubitGrid™ Prompt Injection Scanner (MVP1)
+# -----------------------------------------------
+# What this app exposes:
+#   1) GET  /scan        → quick scan of a single text (via query string)
+#   2) POST /report      → batch scan (JSON body), optional API-key gate
+#   3) POST /feedback    → save human labels to a local JSONL dataset
+#   4) GET  /            → tiny HTML page so humans can try it (stays on-page)
+#   5) GET  /__version   → quick version string (for deploy checks)
+#   6) GET  /__rules     → shows rule count + sample regex patterns
+#
+# Key terms:
+# - "payload": the JSON body you POST to an endpoint.
+# - "flags":   which rules matched in the text (short tags + regex).
+# - "severity": low/medium/high based on the worst matching rule.
 
 # -------------------------
 # Imports & basic plumbing
 # -------------------------
-from fastapi import FastAPI, Query, Header, HTTPException          # web app + query/header parsing
+from fastapi import FastAPI, Query, Header, HTTPException        # web app + query/header parsing
 from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
-from pydantic import BaseModel, Field                               # validated request/response models
-from typing import List, Optional, Dict, Any, Tuple                 # type hints to keep things clear
-from datetime import datetime                                       # timestamps for logs/dataset
-import os, json, pathlib, re                                        # env vars, file I/O, regex patterns
-from fastapi import __version__ as fastapi_version                  # for /__version
+from pydantic import BaseModel, Field                             # validated request/response models
+from typing import List, Optional, Dict, Any, Tuple               # type hints to keep things clear
+from datetime import datetime                                     # timestamps for logs/dataset
+import os, json, pathlib, re                                      # env vars, file I/O, regex patterns
+from fastapi import __version__ as fastapi_version                # for /__version
 
 # -------------------------
 # App instance + branding
@@ -210,7 +208,7 @@ def feedback(item: FeedbackInput, x_api_key: Optional[str] = Header(None)) -> Di
 def home() -> str:
     """
     Minimal HTML so humans can try the scanner without Postman/curl.
-    IMPORTANT: Results render inline (no page navigation).
+    This version uses fetch() so results appear BELOW the button on the SAME page.
     """
     return """
     <html>
@@ -220,52 +218,46 @@ def home() -> str:
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <style>
           body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:760px;margin:2rem auto;line-height:1.5}
-          textarea{width:100%;padding:10px;border:1px solid #ddd;border-radius:10px}
+          textarea{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px}
           .btn{padding:10px 16px;border:0;border-radius:10px;background:#111;color:#fff;cursor:pointer}
           .cta{background:#635bff}
           .muted{color:#666}
-          pre{background:#f7f7f8;padding:12px;border-radius:10px;overflow:auto}
-          .row{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+          pre{background:#f6f8fa;padding:12px;border-radius:8px;overflow:auto}
+          .row{display:flex;gap:12px;align-items:center}
         </style>
       </head>
       <body>
         <h2>QubitGrid: Prompt Injection Scanner</h2>
 
         <form id="scanForm" style="margin: 1rem 0;">
-          <textarea id="text" name="text" rows="8" placeholder="Paste a prompt to scan..."></textarea>
-          <div class="row" style="margin-top:0.75rem;">
+          <textarea id="scanText" rows="8" placeholder="Paste a prompt to scan..."></textarea>
+          <div class="row" style="margin-top:0.5rem;">
             <button class="btn" type="submit">Scan</button>
-            <a href="/docs" class="btn" style="text-decoration:none;background:#444;">API Docs</a>
-            <a href="https://buy.stripe.com/test_YOUR_LINK" target="_blank" class="btn cta" style="text-decoration:none">Buy Early Access (Test)</a>
+            <a href="/docs" class="btn" style="text-decoration:none;background:#444">Open API Docs</a>
+            <a href="/__rules" class="btn" style="text-decoration:none;background:#444">View Rules</a>
           </div>
         </form>
 
-        <h4>Result</h4>
-        <pre id="result" class="muted">Submit text to see results here…</pre>
+        <div id="result"></div>
 
         <p class="muted">Advisory utilities for pre-audit readiness. Not a certification.</p>
 
-        <script>
-          const form = document.getElementById('scanForm');
-          const out  = document.getElementById('result');
+        <p style="margin-top:1.25rem;">
+          <a href="https://buy.stripe.com/test_YOUR_LINK" target="_blank" class="btn cta" style="text-decoration:none;display:inline-block">
+            Buy Early Access (Test)
+          </a>
+        </p>
 
-          form.addEventListener('submit', async (e) => {
+        <script>
+          // Intercept form submit so we stay on the same page.
+          document.getElementById('scanForm').addEventListener('submit', async (e) => {
             e.preventDefault(); // prevent navigation
-            const val = document.getElementById('text').value || '';
-            if (!val.trim()) {
-              out.textContent = 'Please paste some text to scan.';
-              return;
-            }
-            out.textContent = 'Scanning…';
-            try {
-              // Call GET /scan?text=... and pretty-print the JSON inline
-              const url = '/scan?text=' + encodeURIComponent(val);
-              const res = await fetch(url);
-              const json = await res.json();
-              out.textContent = JSON.stringify(json, null, 2);
-            } catch (err) {
-              out.textContent = 'Error: ' + (err && err.message ? err.message : err);
-            }
+            const text = document.getElementById('scanText').value || '';
+            const res = await fetch('/scan?text=' + encodeURIComponent(text));
+            const data = await res.json();
+            // Pretty-print the JSON result below the button
+            document.getElementById('result').innerHTML =
+              '<h3>Result</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
           });
         </script>
       </body>
