@@ -244,3 +244,21 @@ def home() -> str:
       </body>
     </html>
     """
+
+# --- Diagnostics: quick version + rule list ---
+from fastapi import __version__ as fastapi_version
+from fastapi.responses import PlainTextResponse
+
+APP_VERSION = "scanner-v0.2.0"  # bump whenever you deploy
+
+@app.get("/__version", response_class=PlainTextResponse)
+def version():
+    return f"{APP_VERSION} | FastAPI {fastapi_version}"
+
+@app.get("/__rules")
+def rules():
+    return {
+        "count": len(_COMPILED),
+        "examples": [r[0].pattern for r in _COMPILED[:5]]
+    }
+
