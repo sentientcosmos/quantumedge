@@ -1,31 +1,30 @@
 """
 QubitGrid™ Prompt Injection Scanner (MVP1)
-- Small FastAPI app that:
-  1) Scans a single text via GET /scan
-  2) Scans a batch of texts via POST /report (optionally gated by X-API-Key)
-  3) Collects human labels via POST /feedback to build a dataset (JSONL)
-  4) Serves a tiny HTML demo page at GET /
 
-Key ideas:
-- "payload" just means the JSON body you POST to an endpoint.
-- "flags" = which rules matched.
-- "severity" = low/medium/high based on worst matching rule.
+What this app does:
+  1) GET  /scan      → quick scan of a single text (via query string)
+  2) POST /report    → batch scan (JSON body), optional API-key gate
+  3) POST /feedback  → save human labels to a local JSONL dataset
+  4) GET  /          → tiny HTML page so humans can try it
+  5) GET  /__version → quick version string (for deploy checks)
+  6) GET  /__rules   → shows rule count + sample regex patterns
+
+Key terms:
+- "payload": the JSON body you POST to an endpoint.
+- "flags":   which rules matched in the text (short tags + regex).
+- "severity": low/medium/high based on the worst matching rule.
 """
 
 # -------------------------
 # Imports & basic plumbing
 # -------------------------
-from fastapi import FastAPI, Query, Header, HTTPException           # web framework + query + header + errors
-from fastapi.responses import JSONResponse, HTMLResponse            # JSON + HTML responses
-from pydantic import BaseModel, Field                                # request/response data models (validated)
-from typing import List, Optional, Dict, Any, Tuple                  # type hints (make code & docs clearer)
-from datetime import datetime                                        # UTC timestamps for logs/dataset
-import os, json, pathlib, re                                         # env vars, file I/O, regex
-# Extra imports for serving HTML and static files
-from fastapi.responses import HTMLResponse   # lets FastAPI return HTML pages
-from fastapi.staticfiles import StaticFiles  # (future use) serve CSS/JS/images
-import pathlib                               # handle file paths safely
-
+from fastapi import FastAPI, Query, Header, HTTPException         # web app + query/header parsing
+from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
+from pydantic import BaseModel, Field                              # validated request/response models
+from typing import List, Optional, Dict, Any, Tuple                # type hints to keep things clear
+from datetime import datetime                                      # timestamps for logs/dataset
+import os, json, pathlib, re                                       # env vars, file I/O, regex patterns
+from fastapi import __version__ as fastapi_version                 # for /__version
 
 # -------------------------
 # App instance + branding
@@ -35,16 +34,15 @@ app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 # Clear, consistent legal posture (advisory utilities, not certification)
 DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
 
-
 # -------------------------
 # Rule engine (regex-based)
 # -------------------------
 # Each tuple: (regex_pattern, severity, tag_for_reporting)
 _RULES: List[Tuple[str, str, str]] = [
-    (r"\bignore (?:all|previous) instructions\b",   "medium", "ignore_instructions"),
-    (r"\bdisregard (?:all|previous) instructions\b","medium", "disregard_instructions"),
-    (r"\breveal (?:the )?system prompt\b",          "high",   "reveal_system_prompt"),
-    (r"\bact as (?:dan|developer mode)\b",          "medium", "act_as_dan"),
+    (r"\bignore (?:all|previous) instructions\b",    "medium", "ignore_instructions"),
+    (r"\bdisregard (?:all|previous) instructions\b", "medium", "disregard_instructions"),
+    (r"\breveal (?:the )?system prompt\b",           "high",   "reveal_system_prompt"),
+    (r"\bact as (?:dan|developer mode)\b",           "medium", "act_as_dan"),
     (r"\bjailbreak\b",                               "medium", "jailbreak"),
     (r"\bsudo\b",                                    "medium", "sudo"),
     (r"\bexfiltrat(?:e|ion)\b",                      "high",   "exfiltrate"),
@@ -54,7 +52,7 @@ _RULES: List[Tuple[str, str, str]] = [
     (r"\bbase64\b",                                  "low",    "base64"),
 ]
 
-# Precompile regex once (faster than compiling on every request)
+# Precompile once (faster than compiling on every request)
 _COMPILED: List[Tuple[re.Pattern, str, str]] = [
     (re.compile(pat, re.IGNORECASE), sev, tag) for (pat, sev, tag) in _RULES
 ]
@@ -67,10 +65,11 @@ def _worst(a: str, b: str) -> str:
 
 def scan_text_rules(text: str) -> Tuple[List[Dict[str, Any]], str]:
     """
-    Run all compiled rules against text.
+    Run all compiled rules against the text.
+
     Returns:
-      flags: list[ { 'tag': <short code>, 'regex': <pattern> }, ... ]
-      severity: 'low' | 'medium' | 'high' (worst rule that matched)
+      flags:    list of dicts like {"tag": "ignore_instructions", "regex": "<pattern>"}
+      severity: "low" | "medium" | "high" (worst rule that matched)
     """
     t = text or ""
     flags: List[Dict[str, Any]] = []
@@ -81,15 +80,13 @@ def scan_text_rules(text: str) -> Tuple[List[Dict[str, Any]], str]:
             severity = _worst(severity, sev)
     return flags, severity
 
-
 # -------------------------
 # Tiny analytics helper
 # -------------------------
 def log_event(event_name: str, props: Dict[str, Any]) -> None:
-    """Print-only analytics so you can see usage in your server logs."""
+    """Print-only analytics so you can see usage in Render logs."""
     ts = datetime.utcnow().isoformat() + "Z"
     print(f"[analytics] {{'ts':'{ts}','event':'{event_name}','props':{props}}}")
-
 
 # -------------------------
 # GET /scan  (single text)
@@ -108,7 +105,6 @@ def scan(text: str = Query(..., description="Text to scan for prompt injection")
         "disclaimer": DISCLAIMER,
     }
     return JSONResponse(result)
-
 
 # -------------------------------------------------
 # POST /report (batch texts; optional API key gate)
@@ -153,7 +149,7 @@ def report(payload: BatchReportInput, x_api_key: Optional[str] = Header(None)) -
     counts = {"low": 0, "medium": 0, "high": 0}
 
     for i, t in enumerate(payload.texts):
-        flags, severity = scan_text_rules(t)  # <— unified scanner
+        flags, severity = scan_text_rules(t)  # unified scanner
         items.append(BatchReportItem(index=i, flags=flags, severity=severity))
         counts[severity] += 1
 
@@ -163,7 +159,6 @@ def report(payload: BatchReportInput, x_api_key: Optional[str] = Header(None)) -
         pass  # logging should never break requests
 
     return {"items": items, "summary": counts, "disclaimer": DISCLAIMER}
-
 
 # ---------------------------------------------
 # POST /feedback (label to dataset, JSON Lines)
@@ -183,7 +178,7 @@ class FeedbackInput(BaseModel):
 def feedback(item: FeedbackInput, x_api_key: Optional[str] = Header(None)) -> Dict[str, Any]:
     """
     Save a labeled example to datasets/scanner.jsonl.
-    On Render free tier, filesystem is ephemeral (fine for a demo).
+    On Render free tier, the filesystem is ephemeral (fine for a demo).
     For persistence later, we’ll wire SQLite/Postgres.
     """
     _check_api_key(x_api_key)
@@ -208,7 +203,6 @@ def feedback(item: FeedbackInput, x_api_key: Optional[str] = Header(None)) -> Di
 
     return {"ok": True, "disclaimer": DISCLAIMER}
 
-
 # -------------------------
 # GET /  (tiny demo page)
 # -------------------------
@@ -223,26 +217,29 @@ def home() -> str:
         <title>QubitGrid Prompt Scanner</title>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+          body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:720px;margin:2rem auto;line-height:1.5}
+          textarea{width:100%;padding:8px}
+          .btn{padding:10px 16px;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}
+          .muted{color:#666}
+          .cta{background:#635bff}
+        </style>
       </head>
-      <body style="font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; line-height:1.5;">
+      <body>
         <h2>QubitGrid: Prompt Injection Scanner</h2>
 
         <form action="/scan" method="get" style="margin: 1rem 0;">
-          <textarea name="text" rows="8" style="width:100%; padding:8px;"
-            placeholder="Paste a prompt to scan..."></textarea>
+          <textarea name="text" rows="8" placeholder="Paste a prompt to scan..."></textarea>
           <div style="margin-top:0.5rem;">
-            <button type="submit" style="padding:8px 14px;">Scan</button>
+            <button class="btn" type="submit">Scan</button>
           </div>
         </form>
 
-        <p style="color:#666; margin-top:1rem;">
-          Advisory utilities for pre-audit readiness. Not a certification.
-        </p>
+        <p class="muted">Advisory utilities for pre-audit readiness. Not a certification.</p>
 
         <p style="margin-top:1.25rem;">
-          <a href="https://buy.stripe.com/test_YOUR_LINK" target="_blank"
-             style="background:#635bff;color:white;padding:10px 16px;border-radius:6px;text-decoration:none;">
-             Buy Early Access (Test)
+          <a href="https://buy.stripe.com/test_YOUR_LINK" target="_blank" class="btn cta" style="text-decoration:none;display:inline-block">
+            Buy Early Access (Test)
           </a>
         </p>
       </body>
@@ -250,19 +247,17 @@ def home() -> str:
     """
 
 # --- Diagnostics: quick version + rule list ---
-from fastapi import __version__ as fastapi_version
-from fastapi.responses import PlainTextResponse
-
 APP_VERSION = "scanner-v0.2.0"  # bump whenever you deploy
 
 @app.get("/__version", response_class=PlainTextResponse)
 def version():
+    """Used to verify a new deploy is live."""
     return f"{APP_VERSION} | FastAPI {fastapi_version}"
 
 @app.get("/__rules")
 def rules():
+    """Surface rule count + a few examples for quick inspection."""
     return {
         "count": len(_COMPILED),
         "examples": [r[0].pattern for r in _COMPILED[:5]]
     }
-
