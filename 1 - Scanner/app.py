@@ -202,67 +202,17 @@ def feedback(item: FeedbackInput, x_api_key: Optional[str] = Header(None)) -> Di
     return {"ok": True, "disclaimer": DISCLAIMER}
 
 # -------------------------
-# GET /  (tiny demo page)
+# GET /  (serve standalone index.html)
 # -------------------------
 @app.get("/", response_class=HTMLResponse)
 def home() -> str:
     """
-    Minimal HTML so humans can try the scanner without Postman/curl.
-    This version uses fetch() so results appear BELOW the button on the SAME page.
+    Serve the standalone index.html UI instead of embedding HTML here.
     """
-    return """
-    <html>
-      <head>
-        <title>QubitGrid Prompt Scanner</title>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <style>
-          body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:760px;margin:2rem auto;line-height:1.5}
-          textarea{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px}
-          .btn{padding:10px 16px;border:0;border-radius:10px;background:#111;color:#fff;cursor:pointer}
-          .cta{background:#635bff}
-          .muted{color:#666}
-          pre{background:#f6f8fa;padding:12px;border-radius:8px;overflow:auto}
-          .row{display:flex;gap:12px;align-items:center}
-        </style>
-      </head>
-      <body>
-        <h2>QubitGrid: Prompt Injection Scanner</h2>
-
-        <form id="scanForm" style="margin: 1rem 0;">
-          <textarea id="scanText" rows="8" placeholder="Paste a prompt to scan..."></textarea>
-          <div class="row" style="margin-top:0.5rem;">
-            <button class="btn" type="submit">Scan</button>
-            <a href="/docs" class="btn" style="text-decoration:none;background:#444">Open API Docs</a>
-            <a href="/__rules" class="btn" style="text-decoration:none;background:#444">View Rules</a>
-          </div>
-        </form>
-
-        <div id="result"></div>
-
-        <p class="muted">Advisory utilities for pre-audit readiness. Not a certification.</p>
-
-        <p style="margin-top:1.25rem;">
-          <a href="https://buy.stripe.com/test_YOUR_LINK" target="_blank" class="btn cta" style="text-decoration:none;display:inline-block">
-            Buy Early Access (Test)
-          </a>
-        </p>
-
-        <script>
-          // Intercept form submit so we stay on the same page.
-          document.getElementById('scanForm').addEventListener('submit', async (e) => {
-            e.preventDefault(); // prevent navigation
-            const text = document.getElementById('scanText').value || '';
-            const res = await fetch('/scan?text=' + encodeURIComponent(text));
-            const data = await res.json();
-            // Pretty-print the JSON result below the button
-            document.getElementById('result').innerHTML =
-              '<h3>Result</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
-          });
-        </script>
-      </body>
-    </html>
-    """
+    index_file = pathlib.Path(__file__).parent / "index.html"
+    if index_file.exists():
+        return index_file.read_text(encoding="utf-8")
+    return "<h2>QubitGrid: UI file not found</h2><p>Please add index.html next to app.py</p>"
 
 # --- Diagnostics: quick version + rule list ---
 APP_VERSION = "scanner-v0.3.0"  # bump whenever you deploy
