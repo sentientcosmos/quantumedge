@@ -24,6 +24,9 @@ from datetime import datetime                                      # timestamps 
 import os, json, pathlib, re                                       # env vars, file I/O, regex patterns
 from fastapi import __version__ as fastapi_version                 # for /__version
 
+# add this with your other imports at the top
+import urllib.request  # lightweight HTTP client for Slack webhook
+
 # -------------------------
 # App instance + branding
 # -------------------------
@@ -31,6 +34,54 @@ app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 
 # Clear, consistent legal posture (advisory utilities, not certification)
 DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
+# -------------------------
+# Slack alert integration
+# -------------------------
+# Configure via environment variables (Render → Settings → Environment)
+SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK", "").strip()   # Incoming Webhook URL from Slack
+ALERT_THRESHOLD = os.getenv("SLACK_THRESHOLD", "high").lower().strip()
+# valid thresholds: "low", "medium", "high"
+# Example behavior:
+#   - "high"   → only alert on high
+#   - "medium" → alert on medium or high
+#   - "low"    → alert on anything flagged
+
+def _sev_rank(s: str) -> int:
+    """Map severity → number so we can compare (reuses your ordering)."""
+    return _SEV_ORDER.get(s, 0)  # defaults to 0 for unknown
+
+def _should_alert(severity: str) -> bool:
+    """Return True if item severity meets/exceeds threshold."""
+    return _sev_rank(severity) >= _sev_rank(ALERT_THRESHOLD)
+
+def send_slack_alert(text: str, severity: str, flags: list, origin: str = "scan") -> None:
+    """
+    Post a simple JSON payload to Slack Incoming Webhook.
+    - Safe no-op if SLACK_WEBHOOK is empty (so local dev won't error).
+    - Includes a short summary + top 3 rule IDs for quick triage.
+    """
+    if not SLACK_WEBHOOK:
+        return  # Slack not configured → do nothing
+
+    # Build a compact, human-friendly summary
+    top_flags = ", ".join(sorted({f.get("id") or f.get("tag", "?") for f in flags})) or "no-flags"
+    preview = (text or "")[:200].replace("\n", " ")
+    payload = {
+        "text": f"QubitGrid alert ({origin}): severity={severity}, flags=[{top_flags}]\n→ preview: {preview}"
+    }
+
+    try:
+        req = urllib.request.Request(
+            SLACK_WEBHOOK,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            resp.read()  # we don't need the body
+    except Exception as e:
+        # Never crash the request because Slack failed; just log to server
+        print(f"[slack] failed to send alert: {e}")
 
 # ==================== RULE CATALOG (structured) ====================
 # Each rule: (id, category, severity, regex pattern, why)
@@ -170,6 +221,25 @@ def scan_text_rules(text: str) -> Tuple[List[Dict[str, Any]], str]:
 def scan(text: str = Query(..., description="Text to scan for prompt injection")):
     """Single-text scan; returns flags + worst severity."""
     flags, severity = scan_text_rules(text)
+@app.get("/scan")
+def scan(text: str = Query(..., description="Text to scan for prompt injection")):
+    flags, severity = scan_text_rules(text)
+
+    # NEW: send Slack alert if severity meets configured threshold
+    try:
+        if flags and _should_alert(severity):
+            send_slack_alert(text=text, severity=severity, flags=flags, origin="scan")
+    except Exception:
+        pass  # alerts must never break the request
+
+    result = {
+        "flagged": len(flags) > 0,
+        "severity": severity,
+        "flags": flags,
+        "disclaimer": DISCLAIMER,
+    }
+    return JSONResponse(result)
+
     return JSONResponse({
         "flagged": len(flags) > 0,
         "severity": severity,
@@ -178,53 +248,46 @@ def scan(text: str = Query(..., description="Text to scan for prompt injection")
     })
 
 # -------------------------------------------------
-# POST /report (batch texts; optional API key gate)
-# -------------------------------------------------
-class BatchReportInput(BaseModel):
-    """Request body for batch scans."""
-    texts: List[str] = Field(..., description="Batch of texts to scan")
-
-class BatchReportItem(BaseModel):
-    """Per-text result returned by /report."""
-    index: int
-    flags: List[Dict[str, Any]]
-    severity: str  # "low" | "medium" | "high"
-
-class BatchReportOut(BaseModel):
-    """Full /report response."""
-    items: List[BatchReportItem]
-    summary: Dict[str, int]   # {"low": n, "medium": n, "high": n}
-    disclaimer: str
-
-def _check_api_key(provided_key: Optional[str]) -> None:
-    """
-    Simple paywall/abuse gate:
-      - Set env var API_KEY="your_secret"
-      - Clients must send header: X-API-Key: your_secret
-      - If API_KEY is NOT set, endpoint is open (handy for local dev)
-    """
-    expected = os.getenv("API_KEY")
-    if expected and provided_key != expected:
-        raise HTTPException(status_code=403, detail="Forbidden. Valid API key required.")
+# ---------- BATCH REPORT ENDPOINT (POST /report) ----------
 
 @app.post("/report", response_model=BatchReportOut)
-def report(payload: BatchReportInput, x_api_key: Optional[str] = Header(None)) -> Dict[str, Any]:
-    """Batch scan using the SAME rule engine as /scan (consistent behavior)."""
-    _check_api_key(x_api_key)  # only blocks if API_KEY is set and doesn’t match
+def report(payload: BatchReportInput, x_api_key: Optional[str] = Header(None)):
+    """
+    Batch scan endpoint.
+    - Reads many texts from payload.texts.
+    - Uses the shared rule-based scanner 'scan_text_rules'.
+    - Tallies severity counts into a summary.
+    - Returns items + summary + disclaimer.
+    - NEW: sends Slack alert per item if severity >= threshold.
+    """
+    # 1) Enforce API key if API_KEY is set in environment (Render/production).
+    _check_api_key(x_api_key)
 
+    # 2) Prepare containers for results and counts.
     items: List[BatchReportItem] = []
     counts = {"low": 0, "medium": 0, "high": 0}
 
+    # 3) Scan each text using the SAME engine as /scan.
     for i, t in enumerate(payload.texts):
-        flags, severity = scan_text_rules(t)  # unified scanner
+        flags, severity = scan_text_rules(t)
         items.append(BatchReportItem(index=i, flags=flags, severity=severity))
         counts[severity] += 1
 
+        # 4) NEW: Slack alert per item (only if threshold is met).
+        try:
+            if flags and _should_alert(severity):
+                send_slack_alert(text=t, severity=severity, flags=flags, origin="report")
+        except Exception:
+            # Never let Slack failure break the report endpoint
+            pass
+
+    # 5) (Optional) log to console for analytics
     try:
         log_event("batch_scan_performed", {"batch_size": len(payload.texts)})
     except Exception:
-        pass  # logging should never break requests
+        pass
 
+    # 6) Return structured JSON response
     return {"items": items, "summary": counts, "disclaimer": DISCLAIMER}
 
 # ---------------------------------------------
