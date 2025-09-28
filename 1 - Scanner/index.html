@@ -121,12 +121,14 @@
       }
     });
 
-    // --- (optional) show version if your app exposes /__version ---
-    fetch('/__version').then(r => r.ok ? r.json() : null).then(info => {
-      if (info && info.version) {
-        document.getElementById('version').textContent = `Build: ${info.version}`;
-      }
-    }).catch(() => {});
+   // --- (optional) show version if your app exposes /__version ---
+// Note: /__version returns plain text, so use .text()
+fetch('/__version').then(r => r.ok ? r.text() : null).then(info => {
+  if (info) {
+    document.getElementById('version').textContent = info;
+  }
+}).catch(() => {});
+
   </script>
 </body>
 </html>

@@ -1,7 +1,8 @@
 """
 app.py — QubitGrid™ Prompt Injection Scanner (MVP1)
 Ultra-annotated: every section explains what it does and why.
-Replace your current app.py with this file (backup first).
+
+Paste this whole file over your existing app.py (backup your old app.py first).
 """
 
 # ------------------------------
