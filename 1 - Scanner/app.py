@@ -42,96 +42,63 @@ DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certif
 # - regex_pattern: the pattern matched (we compile these below)
 # - why: short explanation (for reports/UI)
 #
+# =======================
+# Rule set (regex-based)
+# =======================
+# Each tuple: (regex_pattern, severity, tag, why)
 # Notes:
-# - Patterns use regex word boundaries \b and are case-insensitive.
-# - Add new rules here. Keep them short and explained for maintainability.
-_RULES: List[Tuple[str, str, str, str, str]] = [
-    # control override / ignore instructions
-    ("ignore_instructions", "control_override", "medium",
-     r"\b(?:ignore|disregard)\s+(?:all|any|previous|prior)\s+instructions?\b",
-     "User asks the model to ignore prior safety or task instructions."),
+# - We use raw strings r"..." so backslashes are not double-escaped in Python.
+# - \b = word boundary. It does NOT match punctuation like "/" — that’s why we
+#   explicitly allow an optional " /" after rm -rf below.
+# - Order does not matter for matching; we compute “worst” severity at the end.
 
-    ("reset_rules", "control_override", "medium",
-     r"\b(?:forget|clear)\s+(?:all|previous|prior)\s+(?:rules|instructions|constraints)\b",
-     "Attempts to reset safety rules or system constraints."),
+_RULES = [
+    # Control override / jailbreak scaffolding
+    (r"\b(?:ignore|disregard)\s+(?:all|any|previous|prior)\s+(?:rules|instructions)\b",
+     "medium", "ignore_instructions", "User asks the model to ignore prior safety or task instructions."),
+    (r"\b(?:reset|forget|clear)\s+(?:all|previous|prior)\s+(?:rules|instructions|constraints)\b",
+     "medium", "reset_rules", "Attempts to reset safety rules or system constraints."),
 
-    # system / prompt exfiltration
-    ("reveal_system_prompt", "prompt_exfiltration", "high",
-     r"\b(?:reveal|show|print|display)\s+(?:the\s+)?(?:hidden\s+)?(?:system|developer)\s+prompt\b",
-     "Tries to extract hidden system/developer instructions."),
+    # Prompt exfiltration / chain-of-thought extraction
+    (r"\b(?:reveal|show|print|display)\s+(?:the\s+)?(?:hidden\s+)?(?:system|developer)\s+prompt\b",
+     "high",   "reveal_system_prompt", "Tries to extract hidden system/developer instructions."),
+    (r"\b(?:show|reveal|explain)\s+(?:your\s+)?(?:chain[-\s]?of[-\s]?thought|hidden\s+notes)\b",
+     "high",   "show_chain_of_thought", "Tries to extract hidden reasoning or internal notes."),
 
-    ("show_chain_of_thought", "prompt_exfiltration", "high",
-     r"\b(?:show|reveal|explain)\s+(?:your\s+)?(?:chain[-\s]?of[-\s]?thought|reasoning)\b",
-     "Tries to extract hidden reasoning or internal notes."),
+    # Role / power elevation
+    (r"\bact\s+as\s+(?:dan|developer\s*mode|root|sysadmin)\b",
+     "medium", "act_as_role_dan", "Asks the model to assume a powerful/unsafe role."),
+    (r"\bdo\s+anything\s+now\b",
+     "medium", "do_anything_now", "Classic DAN jailbreak bypass normal limitations."),
 
-    # role impersonation / DAN style
-    ("act_as_role_dan", "role_impersonation", "medium",
-     r"\bact\s+as\s+(?:dan|developer\s*mode|root|sysadmin)\b",
-     "Asks the model to assume a powerful/unsafe role."),
+    # Exec risk (dangerous commands / payload fetch)
+    # IMPORTANT FIX: allow optional space+slash after -rf to catch 'rm -rf /'
+    (r"\brm\s+-rf(?:\s+/)?", 
+     "high",   "shell_danger_rmrf", "Dangerous shell command that deletes files/directories."),
+    (r"\bchmod\s+\+x\b",
+     "medium", "shell_chmod_exec", "Enables execution permission; often part of exploit chains."),
+    (r"\bpowershell\s+[-\w]*\s*-e[nc]ode[d]?\s+", 
+     "high",   "powershell_encoded", "Base64-encoded PowerShell often used to hide payloads."),
+    (r"\b(?:curl|wget)\s+https?://", 
+     "medium", "remote_fetch", "Fetches remote content; can be used to pull payloads."),
+    (r"\bbase64\b",              
+     "low",    "base64_indicator", "Base64 often used to conceal data or instructions."),
+    (r"\b0x[0-9a-fA-F]{8,}\b",   
+     "low",    "hex_obfuscation", "Hex blobs can conceal data or instructions."),
 
-    ("do_anything_now", "role_impersonation", "medium",
-     r"\bdo\s+anything\s+now\b",
-     "Classic DAN jailbreak asking to bypass limitations."),
+    # Policy bypass / safety filters
+    (r"\b(?:bypass|ignore|evade)\s+(?:policy|policies|filters|guardrails|content\s*policy)\b",
+     "medium", "bypass_safety", "Asks to bypass safety policies or guardrails."),
+    (r"\bignore\s+policy\s+for\s+(?:research|testing)\b",
+     "medium", "ignore_policy_research", "Tries to justify a bypass as 'research/testing'."),
 
-    # shell / exec / remote fetch patterns
-    ("shell_danger_rmrf", "exec_risk", "high",
- 	r"(?<!\S)rm\s+-rf(?:\s+/\S*)?",
- 	"Dangerous shell command that deletes files/directories."),
-
-
-    ("shell_chmod_exec", "exec_risk", "medium",
-     r"\bchmod\s+\+x\b",
-     "Enables execution permission; often part of exploit chains."),
-
-    ("remote_fetch", "exec_risk", "medium",
-     r"\b(?:curl|wget)\s+https?://",
-     "Fetches remote content; can be used to pull payloads."),
-
-    ("powershell_download", "exec_risk", "high",
-     r"powershell\.exe.+(?:downloadstring|invoke[-\s]?webrequest)",
-     "PowerShell download/execute pattern (common in malware)."),
-
-    # obfuscation indicators
-    ("base64_indicator", "obfuscation", "low",
-     r"\bbase64\b",
-     "Base64 often used to conceal payloads or secrets."),
-
-    ("hex_obfuscation", "obfuscation", "low",
-     r"\b0x[0-9a-fA-F]{8,}\b",
-     "Hex blobs can conceal data or instructions."),
-
-    # policy bypass language
-    ("bypass_safety", "policy_bypass", "medium",
-     r"\bbypass\s+(?:safety|filters|guardrails|content\s+policy)\b",
-     "Asks to bypass safety policies or guardrails."),
-
-    ("ignore_policy_for_research", "policy_bypass", "medium",
-     r"\b(?:for\s+research|for\s+testing)\s*,?\s+(?:ignore|bypass)\s+(?:policy|safety)\b",
-     "Tries to justify a bypass as 'research/testing'."),
-
-    # secret exfiltration attempts
-    ("exfiltrate_keys", "secret_exfiltration", "high",
-     r"\b(?:api|secret|private)\s+keys?\b.*\b(?:print|reveal|show)\b",
-     "Attempts to obtain API or private keys."),
-
-    ("env_vars", "secret_exfiltration", "medium",
-     r"\b(?:ENV|environment)\s+variables?\b",
-     "Asks about environment variables where secrets may live."),
+    # Secret / key exfiltration
+    (r"\b(?:api|secret|private)\s+keys?\b",
+     "high",   "exfiltrate_keys", "Attempts to obtain API or private keys."),
+    (r"\b(?:ENV|environment)\s+variables?\b",
+     "medium", "env_vars", "Asks about environment variables where secrets may live."),
 ]
 
-# Map severity strings to numeric rank so we can choose the worst quickly
-_SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
-
-def _worst(a: str, b: str) -> str:
-    """Return the worst (highest priority) severity between a and b."""
-    return a if _SEV_ORDER[a] >= _SEV_ORDER[b] else b
-
-# Precompile regexes once for speed; keep the compiled object with metadata
-# compiled entries shape: (rule_id, category, severity, compiled_regex, why)
-_COMPILED: List[Tuple[str, str, str, re.Pattern, str]] = [
-    (rid, cat, sev, re.compile(pat, flags=re.IGNORECASE | re.DOTALL), why)
-    for (rid, cat, sev, pat, why) in _RULES
-]
 
 # ------------------------------
 # Simple stdout analytics helper
