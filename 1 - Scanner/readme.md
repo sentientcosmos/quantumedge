@@ -38,6 +38,19 @@ Reports are designed to support internal teams and prepare organizations for com
 
 \*\*POST\*\* `/feedback` (Header: `X-API-Key`; body: `{"text":"...","label":"safe|unsafe","reason":"optional"}`)
 
+## cURL examples 
+### Environment
+- `API_KEY` — if set, required as `X-API-Key` on POST /report and POST /feedback
+- `SLACK_WEBHOOK` — optional Slack Incoming Webhook URL for alerts
+- `SLACK_THRESHOLD` — optional; one of `low|medium|high` (default `high`)
+
+### Quickstart (local)
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+export API_KEY="dev-key-123"                         # optional for local
+uvicorn app:app --reload --port 8000
+
 
 
 \*\*Data (local only):\*\* `datasets/scanner.jsonl`  
