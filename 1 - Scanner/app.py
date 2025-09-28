@@ -244,7 +244,6 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
     except Exception as e:
         # Slack errors should not break normal operation
         print(f"[slack] failed to send alert: {e}")
-
 # =============================================================================
 # GET /scan — single-text scan (used by the demo UI)
 # - Input: query param ?text=...
@@ -254,16 +253,16 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 def scan(text: str = Query(..., description="Text to scan for prompt injection")):
     flags, severity = scan_text_rules(text)
 
-# telemetry for single scans (simple stdout analytics)
-try:
-    log_event("scan_performed", {
-        "length": len(text or ""),
-        "flags_count": len(flags),
-        "severity": severity,
-        "categories": sorted({f.get("category") for f in flags}),
-    })
-except Exception:
-    pass
+    # telemetry for single scans (simple stdout analytics)
+    try:
+        log_event("scan_performed", {
+            "length": len(text or ""),
+            "flags_count": len(flags),
+            "severity": severity,
+            "categories": sorted({f.get("category") for f in flags}),
+        })
+    except Exception:
+        pass
 
     # Try to alert Slack if severity meets threshold. Do not crash on failure.
     try:
