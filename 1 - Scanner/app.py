@@ -254,6 +254,17 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 def scan(text: str = Query(..., description="Text to scan for prompt injection")):
     flags, severity = scan_text_rules(text)
 
+# telemetry for single scans (simple stdout analytics)
+try:
+    log_event("scan_performed", {
+        "length": len(text or ""),
+        "flags_count": len(flags),
+        "severity": severity,
+        "categories": sorted({f.get("category") for f in flags}),
+    })
+except Exception:
+    pass
+
     # Try to alert Slack if severity meets threshold. Do not crash on failure.
     try:
         if flags and _should_alert(severity):
@@ -387,6 +398,16 @@ APP_VERSION = "scanner-v0.3.3"
 @app.get("/__version", response_class=PlainTextResponse)
 def version():
     return f"{APP_VERSION} | FastAPI {fastapi_version}"
+
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "version": APP_VERSION,
+        "fastapi": fastapi_version,
+        "rules": len(_COMPILED),
+        "time": datetime.utcnow().isoformat() + "Z",
+    }
 
 @app.get("/rules")
 def list_rules():
