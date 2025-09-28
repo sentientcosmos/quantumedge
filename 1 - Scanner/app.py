@@ -75,8 +75,9 @@ _RULES: List[Tuple[str, str, str, str, str]] = [
 
     # shell / exec / remote fetch patterns
     ("shell_danger_rmrf", "exec_risk", "high",
-     r"\brm\s+-rf\s+/?\b",
-     "Dangerous shell command that deletes files/directories."),
+ 	r"(?<!\S)rm\s+-rf(?:\s+/\S*)?",
+ 	"Dangerous shell command that deletes files/directories."),
+
 
     ("shell_chmod_exec", "exec_risk", "medium",
      r"\bchmod\s+\+x\b",
