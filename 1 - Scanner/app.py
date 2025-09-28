@@ -32,83 +32,86 @@ app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 # Default product disclaimer (appears in every response/report).
 DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
 
-# ------------------------------
-# RULE CATALOG
-# ------------------------------
-# Each rule entry: (rule_id, category, severity, regex_pattern, why)
-# - rule_id: stable short identifier used in the flags returned
-# - category: human grouping (prompt_exfiltration, exec_risk, etc.)
+# =======================
+# RULES SECTION (QubitGrid)
+# =======================
+
+# Each rule = (regex_pattern, severity, tag, why)
+# - regex_pattern: what text pattern to flag
 # - severity: "low" | "medium" | "high"
-# - regex_pattern: the pattern matched (we compile these below)
-# - why: short explanation (for reports/UI)
-#
-# =======================
-# Rule set (regex-based)
-# =======================
-# Each tuple: (regex_pattern, severity, tag, why)
-# Notes:
-# - We use raw strings r"..." so backslashes are not double-escaped in Python.
-# - \b = word boundary. It does NOT match punctuation like "/" — that’s why we
-#   explicitly allow an optional " /" after rm -rf below.
-# - Order does not matter for matching; we compute “worst” severity at the end.
+# - tag: short ID for the flag
+# - why: human-readable reason shown to users
 
 _RULES = [
-    # Control override / jailbreak scaffolding
-    (r"\b(?:ignore|disregard)\s+(?:all|any|previous|prior)\s+(?:rules|instructions)\b",
-     "medium", "ignore_instructions", "User asks the model to ignore prior safety or task instructions."),
-    (r"\b(?:reset|forget|clear)\s+(?:all|previous|prior)\s+(?:rules|instructions|constraints)\b",
-     "medium", "reset_rules", "Attempts to reset safety rules or system constraints."),
 
-    # Prompt exfiltration / chain-of-thought extraction
-    (r"\b(?:reveal|show|print|display)\s+(?:the\s+)?(?:hidden\s+)?(?:system|developer)\s+prompt\b",
-     "high",   "reveal_system_prompt", "Tries to extract hidden system/developer instructions."),
-    (r"\b(?:show|reveal|explain)\s+(?:your\s+)?(?:chain[-\s]?of[-\s]?thought|hidden\s+notes)\b",
-     "high",   "show_chain_of_thought", "Tries to extract hidden reasoning or internal notes."),
+    # --- Control override / prompt tampering ---
+    (r"\bignore|disregard\s+(?:all|any|previous|prior)\s+instructions\b",
+     "medium", "ignore_instructions",
+     "User asks the model to ignore prior safety or task instructions."),
 
-    # Role / power elevation
-    (r"\bact\s+as\s+(?:dan|developer\s*mode|root|sysadmin)\b",
-     "medium", "act_as_role_dan", "Asks the model to assume a powerful/unsafe role."),
+    (r"\bforget|clear\s+(?:all|any|previous|prior)\s+(?:rules|instructions|constraints)\b",
+     "medium", "reset_rules",
+     "Attempts to reset safety rules or system constraints."),
+
+    (r"\breveal|show|print|display\s+(?:the\s+)?system\s+prompt\b",
+     "high", "reveal_system_prompt",
+     "Tries to extract hidden system/developer instructions."),
+
+    (r"\bshow|reveal|explain\s+(?:your|its)?\s*(?:chain|list|of|-)?thought|reasoning\b",
+     "high", "show_chain_of_thought",
+     "Tries to extract hidden reasoning or internal notes."),
+
+    (r"\bact\s+as\s+(?:dan|developer\s+mode|root|sysadmin)\b",
+     "medium", "act_as_role_dan",
+     "Asks the model to assume a powerful/unsafe role."),
+
     (r"\bdo\s+anything\s+now\b",
-     "medium", "do_anything_now", "Classic DAN jailbreak bypass normal limitations."),
+     "medium", "do_anything_now",
+     "Classic DAN jailbreak; bypass normal limitations."),
 
-    # Exec risk (dangerous commands / payload fetch)
-    # IMPORTANT FIX: allow optional space+slash after -rf to catch 'rm -rf /'
-    (r"\brm\s+-rf(?:\s+/)?", 
-     "high",   "shell_danger_rmrf", "Dangerous shell command that deletes files/directories."),
+    # --- Exec risk (dangerous commands / payload fetch) ---
+    # This one catches BOTH `rm -rf /` and `rm -rf /tmp`
+    (r"\brm\s*-\s*rf\s*/(?:\s*\S*)?",
+     "high", "shell_danger_rmrf",
+     "Dangerous shell command that deletes files/directories."),
+
     (r"\bchmod\s+\+x\b",
-     "medium", "shell_chmod_exec", "Enables execution permission; often part of exploit chains."),
-    (r"\bpowershell\s+[-\w]*\s*-e[nc]ode[d]?\s+", 
-     "high",   "powershell_encoded", "Base64-encoded PowerShell often used to hide payloads."),
-    (r"\b(?:curl|wget)\s+https?://", 
-     "medium", "remote_fetch", "Fetches remote content; can be used to pull payloads."),
-    (r"\bbase64\b",              
-     "low",    "base64_indicator", "Base64 often used to conceal data or instructions."),
-    (r"\b0x[0-9a-fA-F]{8,}\b",   
-     "low",    "hex_obfuscation", "Hex blobs can conceal data or instructions."),
-# NEW: catch "rm -rf /" even when nothing follows the slash.
-# - \brm\s*-\s*rf\s*/   → matches rm -rf /
-# - \s*(?:[#;]|$)       → then either whitespace + a comment/chain symbol (# or ;)
-#                         OR end-of-line, so we don't accidentally match paths.
-{
-    "id": "shell_danger_rmrf_root",
-    "category": "exec_risk",
-    "severity": "high",
-    "pattern": r"\brm\s*-\s*rf\s*/\s*(?:[#;]|$)",
-    "why": "Dangerous shell command attempting to delete the entire filesystem root (/)."
-},
+     "medium", "shell_chmod_exec",
+     "Enables execution permission; often part of exploit chains."),
 
+    (r"\bpowershell\s+[-\w]*s*e[ncodel]*\s*",
+     "high", "powershell_encoded",
+     "Base64-encoded PowerShell often used to hide payloads."),
 
-    # Policy bypass / safety filters
-    (r"\b(?:bypass|ignore|evade)\s+(?:policy|policies|filters|guardrails|content\s*policy)\b",
-     "medium", "bypass_safety", "Asks to bypass safety policies or guardrails."),
-    (r"\bignore\s+policy\s+for\s+(?:research|testing)\b",
-     "medium", "ignore_policy_research", "Tries to justify a bypass as 'research/testing'."),
+    (r"\bcurl|wget\s+https?://",
+     "medium", "remote_fetch",
+     "Fetches remote content; can be used to pull payloads."),
 
-    # Secret / key exfiltration
-    (r"\b(?:api|secret|private)\s+keys?\b",
-     "high",   "exfiltrate_keys", "Attempts to obtain API or private keys."),
-    (r"\b(?:ENV|environment)\s+variables?\b",
-     "medium", "env_vars", "Asks about environment variables where secrets may live."),
+    (r"\bbase64\b",
+     "low", "base64_indicator",
+     "Base64 often used to conceal data or instructions."),
+
+    (r"\b0x[0-9a-fA-F]{8,}\b",
+     "low", "hex_obfuscation",
+     "Hex blobs can conceal data or instructions."),
+
+    # --- Policy bypass ---
+    (r"\bbypass\s+safety|filters|guardrails|content|policy\b",
+     "medium", "bypass_safety",
+     "Asks to bypass safety policies or guardrails."),
+
+    (r"\bignore\s+policy\b|\bfor\s+testing\b",
+     "medium", "ignore_policy_for_testing",
+     "Tries to justify a bypass as ‘research/testing’."),
+
+    # --- Secret exfiltration ---
+    (r"\bapi|secret|private\b.*keys\b",
+     "high", "exfiltrate_keys",
+     "Attempts to obtain API or private keys."),
+
+    (r"\bENV|environment\s+variables\b",
+     "medium", "env_vars",
+     "Asks about environment variables where secrets may live."),
 ]
 
 
