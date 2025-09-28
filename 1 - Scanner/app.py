@@ -113,6 +113,50 @@ _RULES = [
      "medium", "env_vars",
      "Asks about environment variables where secrets may live."),
 ]
+# ------------------------------
+# Compile rules + helpers
+# ------------------------------
+
+# Map each rule id to a high-level category for nicer reporting
+CATEGORY_MAP = {
+    # control override / prompt tampering
+    "ignore_instructions": "control_override",
+    "reset_rules": "control_override",
+    "reveal_system_prompt": "prompt_exfiltration",
+    "show_chain_of_thought": "prompt_exfiltration",
+    "act_as_role_dan": "role_impersonation",
+    "do_anything_now": "role_impersonation",
+
+    # exec risk / payload fetch
+    "shell_danger_rmrf": "exec_risk",
+    "shell_chmod_exec": "exec_risk",
+    "powershell_encoded": "exec_risk",
+    "remote_fetch": "exec_risk",
+    "base64_indicator": "obfuscation",
+    "hex_obfuscation": "obfuscation",
+
+    # policy bypass
+    "bypass_safety": "policy_bypass",
+    "ignore_policy_for_testing": "policy_bypass",
+
+    # secret exfiltration
+    "exfiltrate_keys": "secret_exfiltration",
+    "env_vars": "secret_exfiltration",
+}
+
+# Severity ordering so we can compute the "worst" overall severity
+_SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
+def _worst(a: str, b: str) -> str:
+    """Return the higher (worse) of two severities."""
+    return a if _SEV_ORDER.get(a, 0) >= _SEV_ORDER.get(b, 0) else b
+
+# Turn _RULES (pattern, severity, id, why) into 5-tuples:
+# (id, category, severity, compiled_regex, why)
+_COMPILED = []
+for pattern, severity, rid, why in _RULES:
+    cat = CATEGORY_MAP.get(rid, "misc")
+    rx = re.compile(pattern, re.IGNORECASE)
+    _COMPILED.append((rid, cat, severity, rx, why))
 
 
 # ------------------------------
