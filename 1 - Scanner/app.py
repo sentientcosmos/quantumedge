@@ -85,6 +85,18 @@ _RULES = [
      "low",    "base64_indicator", "Base64 often used to conceal data or instructions."),
     (r"\b0x[0-9a-fA-F]{8,}\b",   
      "low",    "hex_obfuscation", "Hex blobs can conceal data or instructions."),
+# NEW: catch "rm -rf /" even when nothing follows the slash.
+# - \brm\s*-\s*rf\s*/   → matches rm -rf /
+# - \s*(?:[#;]|$)       → then either whitespace + a comment/chain symbol (# or ;)
+#                         OR end-of-line, so we don't accidentally match paths.
+{
+    "id": "shell_danger_rmrf_root",
+    "category": "exec_risk",
+    "severity": "high",
+    "pattern": r"\brm\s*-\s*rf\s*/\s*(?:[#;]|$)",
+    "why": "Dangerous shell command attempting to delete the entire filesystem root (/)."
+},
+
 
     # Policy bypass / safety filters
     (r"\b(?:bypass|ignore|evade)\s+(?:policy|policies|filters|guardrails|content\s*policy)\b",
