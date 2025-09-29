@@ -13,6 +13,7 @@ import re                 # regular expressions => rule engine
 import json               # json encoding (feedback file, slack payload)
 import pathlib            # cross-platform paths for index.html and datasets
 import urllib.request     # simple HTTP POST (used for Slack webhook)
+import time  # for latency analytics
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -318,33 +319,51 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 # =============================================================================
 @app.get("/scan")
 def scan(text: str = Query(..., description="Text to scan for prompt injection")):
+    """
+    Single-text scan endpoint. All logic must be indented inside this function.
+    We:
+      1. Measure start time
+      2. Run compiled regex scanner
+      3. Compute latency in ms and log telemetry
+      4. Attempt Slack alert (best-effort)
+      5. Return structured JSONResponse
+    """
+    # 1) Start timer for latency (ms)
+    start = time.time()
+
+    # 2) Run the rule scanner (compiled at startup)
     flags, severity = scan_text_rules(text)
 
-    # telemetry for single scans (simple stdout analytics)
+    # 3) Compute latency and include it in telemetry
+    latency_ms = int((time.time() - start) * 1000)
+
     try:
+        # Minimal telemetry printed to stdout so Render logs capture it.
         log_event("scan_performed", {
             "length": len(text or ""),
             "flags_count": len(flags),
             "severity": severity,
             "categories": sorted({f.get("category") for f in flags}),
+            "latency_ms": latency_ms,
         })
     except Exception:
+        # Telemetry must not break the API — swallow any errors here.
         pass
 
-    # Try to alert Slack if severity meets threshold. Do not crash on failure.
+    # 4) Slack alert (best-effort, non-blocking)
     try:
         if flags and _should_alert(severity):
             send_slack_alert(text=text, severity=severity, flags=flags, origin="scan")
     except Exception:
         pass
 
+    # 5) Final response (structured)
     return JSONResponse({
         "flagged": len(flags) > 0,
         "severity": severity,
         "flags": flags,
         "disclaimer": DISCLAIMER,
     })
-
 
 # =============================================================================
 # Pydantic models for batch endpoint (/report)
