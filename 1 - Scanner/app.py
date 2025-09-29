@@ -100,6 +100,86 @@ _RULES = [
     # - why: fetching remote payloads from within Python indicates remote fetch + exec risk
     (r"(?:requests\.(?:get|post)|urllib\.request\.urlopen)\s*\(", "medium", "py_remote_fetch",
      "Fetching remote content from Python which could be used to pull payloads."),
+#============#
+    # =========================
+    # FULL RULE EXPANSION PACK
+    # =========================
+
+    # --- SHELL & UNIX ---
+    # Dangerous deletion
+    (r"\brm\s*-\s*rf\s+/(?:\s|$)", "high", "shell_rmrf",
+     "Shell command to recursively delete from root (rm -rf /)."),
+    # Privilege / perm escalation
+    (r"\b(?:sudo\s+.*|chmod\s+\+x\b|chown\s+\w+:\w+)\b", "high", "shell_sudo_chmod",
+     "Privilege/permission escalation via sudo/chmod/chown."),
+    # Fetch & execute (curl|wget) piped to sh/bash
+    (r"(?:curl|wget)\b[^\n]+?\|\s*(?:sh|bash)\b", "high", "shell_pipe_to_sh",
+     "Fetch remote script and pipe directly to shell (curl|wget | sh)."),
+    # Reverse TCP shells (bash /dev/tcp trick)
+    (r"bash\s+-i\s+>&\s*/dev/tcp/\d{1,3}(?:\.\d{1,3}){3}/\d{2,5}\s+0>&1", "high", "shell_reverse_tcp",
+     "Bash reverse shell using /dev/tcp redirection."),
+    # Raw curl/wget remote fetch
+    (r"\b(?:curl|wget)\s+https?://", "medium", "shell_curl_wget",
+     "Remote fetch via curl/wget (possible payload retrieval)."),
+    # certutil download (Windows but often via shell)
+    (r"\bcertutil\.exe\b.*\b-urlcache\b.*\b-split\b.*\b-f\b", "high", "shell_certutil_fetch",
+     "Windows certutil used to fetch files (T1105)."),
+    # Netcat/ncat exfil/execution
+    (r"\b(?:nc|ncat)\s+(?:-e|-c)\s+\w+", "high", "shell_nc_exfil",
+     "Netcat used to pipe I/O for remote command execution/exfiltration."),
+
+    # --- POWERSHELL ---
+    # IEX + WebClient/DownloadString
+    (r"\bIEX\b|\bInvoke-Expression\b|New-Object\s+Net\.WebClient.*DownloadString", "high", "ps_exec_iexd",
+     "PowerShell execution of downloaded content (IEX / WebClient.DownloadString)."),
+    # Common bypass flags and hidden windows
+    (r"\bpowershell\b.*(?:-nop|-noprofile).*?(?:-w\s*hidden|-windowstyle\s*hidden).*", "high", "ps_bypass_hidden",
+     "PowerShell execution with profile bypass and hidden window."),
+    # Base64-encoded PS payloads (-enc / -encodedcommand)
+    (r"\b(?:-enc|--encodedcommand)\s+[A-Za-z0-9+/=]{20,}", "medium", "ps_base64_enc",
+     "PowerShell encoded payload supplied on command line."),
+    # Invoke-WebRequest fetch
+    (r"\bInvoke-WebRequest\b\s+-Uri\s+https?://", "medium", "ps_invoke_webrequest",
+     "PowerShell web request likely retrieving remote script or data."),
+
+    # --- SQL INJECTION / EXFIL ---
+    (r"\bUNION\s+SELECT\b.*\bFROM\b", "high", "sqli_union",
+     "SQLi UNION SELECT pattern aiming to read arbitrary columns."),
+    (r"\bINFORMATION_SCHEMA\b", "high", "sqli_information_schema",
+     "Probing DB schema via INFORMATION_SCHEMA tables."),
+    (r"\bxp_cmdshell\b", "high", "sqli_xp_cmdshell",
+     "MSSQL extended proc to execute OS commands via SQL."),
+
+    # --- PATH TRAVERSAL & SENSITIVE PATHS ---
+    (r"(?:\.\./){2,}(?:etc/passwd|etc/shadow|hosts)\b", "high", "path_traversal",
+     "Directory traversal attempt to read sensitive UNIX files."),
+    (r"/etc/(?:passwd|shadow|sudoers|ssh/ssh_config)\b", "high", "linux_sensitive_path",
+     "Direct access to sensitive Linux files."),
+    (r"(?:C:\\|%SystemRoot%\\)Windows\\System32\\", "high", "windows_sensitive_path",
+     "Direct access to sensitive Windows System32 paths."),
+
+    # --- TOKENS / SECRETS / ENV ---
+    (r"Authorization:\s*Bearer\s+[A-Za-z0-9\-\._~\+\/]+=*", "high", "token_bearer",
+     "Exposed Bearer token header pattern."),
+    (r"\bAWS_(?:SECRET_ACCESS_KEY|ACCESS_KEY_ID)\b", "high", "token_aws",
+     "AWS credentials referenced in text."),
+    (r"\b(?:x-api-key|api_key|api-key)\b\s*[:=]\s*[A-Za-z0-9\-\._]{10,}", "high", "token_api_key",
+     "API key material present."),
+    (r"-----BEGIN (?:RSA |EC |)PRIVATE KEY-----", "high", "leak_private_key",
+     "Private key material present in text."),
+    (r"\b(?:^|/)\.env\b|^ENV\s*=|^SECRET\s*=", "medium", "dotenv_leak",
+     "Dotenv or generic secret variable exposure."),
+    (r"\b(?:env\s*\|\s*grep|printenv|Set-Item\s+Env:|Get-ChildItem\s+Env:)\b", "medium", "env_dump",
+     "Environment variable enumeration likely for secret discovery."),
+
+    # --- OBFUSCATION BLOBS ---
+    # Long Base64-looking strings: keep threshold high to reduce false positives
+    (r"\b[A-Za-z0-9+/]{40,}={0,2}\b", "medium", "base64_blob",
+     "Suspicious long Base64-like blob."),
+    # Hefty hex strings
+    (r"\b(?:0x)?[0-9a-fA-F]{32,}\b", "low", "hex_blob",
+     "Suspicious long hex-like blob (possible encoded payload)."),
+#========#
 
     # --- Control override / prompt tampering ---
     (r"\bignore|disregard\s+(?:all|any|previous|prior)\s+instructions\b",
@@ -210,6 +290,34 @@ CATEGORY_MAP = {
     # secret exfiltration
     "exfiltrate_keys": "secret_exfiltration",
     "env_vars": "secret_exfiltration",
+
+    # --- Full-pack categories (non-Python) ---
+    "shell_rmrf": "exec_risk",
+    "shell_sudo_chmod": "exec_risk",
+    "shell_pipe_to_sh": "exec_risk",
+    "shell_reverse_tcp": "net_exfil",
+    "shell_curl_wget": "net_fetch",
+    "shell_certutil_fetch": "net_fetch",
+    "shell_nc_exfil": "net_exfil",
+    "ps_exec_iexd": "exec_risk",              # Invoke-Expression / web download
+    "ps_bypass_hidden": "exec_risk",          # -nop -w hidden -enc
+    "ps_base64_enc": "obfuscation",
+    "ps_invoke_webrequest": "net_fetch",
+    "sqli_union": "data_exfiltration",
+    "sqli_information_schema": "data_exfiltration",
+    "sqli_xp_cmdshell": "exec_risk",
+    "path_traversal": "fs_probe",
+    "linux_sensitive_path": "fs_probe",
+    "windows_sensitive_path": "fs_probe",
+    "token_bearer": "secret_exfiltration",
+    "token_aws": "secret_exfiltration",
+    "token_api_key": "secret_exfiltration",
+    "leak_private_key": "secret_exfiltration",
+    "dotenv_leak": "secret_exfiltration",
+    "env_dump": "secret_exfiltration",
+    "base64_blob": "obfuscation",
+    "hex_blob": "obfuscation",
+
 }
 
 # Severity ordering so we can compute the "worst" overall severity
