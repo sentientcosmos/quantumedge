@@ -8,7 +8,7 @@ Paste this whole file over your existing app.py (backup your old app.py first).
 # ------------------------------
 # Standard library imports
 # ------------------------------
-import os                 # read environment variables (API_KEY, SLACK_WEBHOOK)
+import os                 # read environment variables (API_KEY, SLACK_WEBHOOK)|ensure this import exists on the top
 import re                 # regular expressions => rule engine
 import json               # json encoding (feedback file, slack payload)
 import pathlib            # cross-platform paths for index.html and datasets
@@ -362,9 +362,13 @@ def _snippet(text: str, start: int, end: int, pad: int = 40) -> str:
 def scan_text_rules(text: str) -> Tuple[List[Dict[str, Any]], str]:
     """
     Run the full rule catalog against `text`.
-    Returns:
-      flags: list of dictionaries with id, category, severity, why, snippet
-      overall severity: worst match severity (low/medium/high)
+
+    Returns
+    -------
+    flags : list[dict]
+        Each item has: id, category, severity, why, snippet
+    overall_severity : str
+        "low" | "medium" | "high" (the worst severity seen)
     """
     if not text:
         return [], "low"
@@ -384,6 +388,135 @@ def scan_text_rules(text: str) -> Tuple[List[Dict[str, Any]], str]:
             overall = _worst(overall, sev)
 
     return flags, overall
+
+
+# =============================================================================
+# Helpers: shorten snippets and aggregate duplicate flags by rule id
+# =============================================================================
+def _shorten(s: str, n: int = 160) -> str:
+    """
+    Return a UI-friendly snippet:
+    - Replace newlines with spaces (keeps layouts clean)
+    - Trim to at most `n` characters and add an ellipsis if trimmed
+    """
+    if not s:
+        return s
+    s = s.replace("\n", " ")
+    return (s[:n] + "…") if len(s) > n else s
+
+
+def aggregate_flags(raw_flags: list) -> list:
+    """
+    Merge repeated matches for the same rule id.
+
+    Parameters
+    ----------
+    raw_flags : list[dict]
+        Items produced by scan_text_rules(), e.g.:
+        { "id": "...", "category": "...", "severity": "...", "why": "...", "snippet": "..." }
+
+    Returns
+    -------
+    list[dict]
+        One entry per rule id, with:
+        - `match_count`: total matches for that rule
+        - `snippet`: shortened for readability
+    """
+    agg = {}
+    for f in (raw_flags or []):
+        rid = f.get("id", "unknown")
+        if rid not in agg:
+            g = dict(f)                      # copy first occurrence
+            g["match_count"] = 0             # initialize counter
+            if isinstance(g.get("snippet"), str):
+                g["snippet"] = _shorten(g["snippet"])
+            agg[rid] = g
+        agg[rid]["match_count"] += 1
+    return list(agg.values())
+
+
+# =============================================================================
+# GET /scan — single-text scan (used by the demo UI)
+# - Input: query param ?text=...
+# - Output: JSON with flagged (bool), severity, flags[], disclaimer
+# =============================================================================
+@app.get("/scan")
+def scan(text: str = Query(..., description="Text to scan for prompt injection")):
+    """
+    Single-text scan endpoint. All logic must be indented inside this function.
+    We:
+      1. Measure start time
+      2. Run compiled regex scanner
+      3. Aggregate duplicate flags (match_count)
+      4. Log telemetry (including truncation + latency)
+      5. Attempt Slack alert (best-effort)
+      6. Return structured JSONResponse
+    """
+    # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
+    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
+    HEAD_RATIO = 0.7                                               # 70% head, 30% tail
+
+    txt = text or ""
+    orig_len = len(txt)
+    truncated = False
+
+    if orig_len > MAX_INPUT_CHARS:
+        head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
+        tail_n = MAX_INPUT_CHARS - head_n
+        head = txt[:head_n]
+        tail = txt[-tail_n:] if tail_n > 0 else ""
+        text = head + "\n...[TRUNCATED]...\n" + tail
+        truncated = True
+    else:
+        text = txt
+    # ---------- END INPUT SIZE POLICY ----------
+
+    # 1) Start timer
+    start = time.time()
+
+    # 2) Run scanner
+    flags, severity = scan_text_rules(text)
+
+    # 3) Aggregate duplicates and trim snippets
+    raw_flags = flags
+    flags = aggregate_flags(raw_flags)
+
+    # 4) Compute latency + telemetry
+    latency_ms = int((time.time() - start) * 1000)
+    try:
+        log_event("scan_performed", {
+            "length": len(text or ""),
+            "flags_count": len(flags),  # unique rules after aggregation
+            "matches_total": sum(f.get("match_count", 1) for f in flags),
+            "severity": severity,
+            "categories": sorted({f.get("category") for f in flags}),
+            "latency_ms": latency_ms,
+            "truncated": truncated,
+            "original_length": orig_len,
+            "scanned_length": len(text),
+        })
+    except Exception:
+        pass
+
+    # 5) Slack alert (best-effort)
+    try:
+        if flags and _should_alert(severity):
+            send_slack_alert(text=text, severity=severity, flags=flags, origin="scan")
+    except Exception:
+        pass
+
+    # 6) Response
+    return JSONResponse({
+        "flagged": len(flags) > 0,
+        "severity": severity,
+        "flags": flags,
+        "matches_total": sum(f.get("match_count", 1) for f in flags),
+        "truncated": truncated,
+        "original_length": orig_len,
+        "scanned_length": len(text),
+        "disclaimer": DISCLAIMER,
+    })
+
 
 # ------------------------------
 # Optional Slack alerting (best-effort)
@@ -437,27 +570,65 @@ def scan(text: str = Query(..., description="Text to scan for prompt injection")
       4. Attempt Slack alert (best-effort)
       5. Return structured JSONResponse
     """
+
+    """
+    Single-text scan endpoint.
+    """
+    # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
+    # Configure via env; default total slice = 50k chars (35k head + 15k tail)
+    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
+    HEAD_RATIO = 0.7                                               # 70% head, 30% tail
+
+    txt = text or ""
+    orig_len = len(txt)
+    truncated = False
+
+    if orig_len > MAX_INPUT_CHARS:
+        # Compute head/tail sizes
+        head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
+        tail_n = MAX_INPUT_CHARS - head_n
+
+        head = txt[:head_n]
+        tail = txt[-tail_n:] if tail_n > 0 else ""
+
+        # Join with a visible marker so UX and logs show truncation
+        text = head + "\n...[TRUNCATED]...\n" + tail
+        truncated = True
+    else:
+        # keep as-is
+        text = txt
+    # ---------- END INPUT SIZE POLICY ----------
+
     # 1) Start timer for latency (ms)
     start = time.time()
 
     # 2) Run the rule scanner (compiled at startup)
     flags, severity = scan_text_rules(text)
 
+    # Collapse duplicates and trim snippets for cleaner UX
+    raw_flags = flags
+    flags = aggregate_flags(raw_flags)
+
+
+
     # 3) Compute latency and include it in telemetry
     latency_ms = int((time.time() - start) * 1000)
 
     try:
-        # Minimal telemetry printed to stdout so Render logs capture it.
         log_event("scan_performed", {
             "length": len(text or ""),
-            "flags_count": len(flags),
             "severity": severity,
             "categories": sorted({f.get("category") for f in flags}),
             "latency_ms": latency_ms,
+            "truncated": truncated,          # NEW: soft-cap visibility
+            "original_length": orig_len,     # NEW: what the client sent
+            "scanned_length": len(text),     # NEW: what we actually scanned
+	    "flags_count": len(flags),  # number of unique rule IDs after aggregation
+	    "matches_total": sum(f.get("match_count", 1) for f in flags),
+
         })
     except Exception:
-        # Telemetry must not break the API — swallow any errors here.
-        pass
+        pass  # telemetry must never break the API
 
     # 4) Slack alert (best-effort, non-blocking)
     try:
@@ -471,6 +642,9 @@ def scan(text: str = Query(..., description="Text to scan for prompt injection")
         "flagged": len(flags) > 0,
         "severity": severity,
         "flags": flags,
+        "truncated": truncated,             # surface to client
+        "original_length": orig_len,
+        "scanned_length": len(text),
         "disclaimer": DISCLAIMER,
     })
 
