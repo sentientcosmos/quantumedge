@@ -173,9 +173,10 @@ _RULES = [
      "Environment variable enumeration likely for secret discovery."),
 
     # --- OBFUSCATION BLOBS ---
-    # Long Base64-looking strings: keep threshold high to reduce false positives
-    (r"\b[A-Za-z0-9+/]{40,}={0,2}\b", "medium", "base64_blob",
-     "Suspicious long Base64-like blob."),
+  # Long-ish Base64-like blobs (lower threshold to 16 to catch shorter encoded tokens)
+(r"\b[A-Za-z0-9+/]{16,}={0,2}\b", "medium", "base64_blob",
+ "Suspicious Base64-like blob (possible encoded payload)."),
+
     # Hefty hex strings
     (r"\b(?:0x)?[0-9a-fA-F]{32,}\b", "low", "hex_blob",
      "Suspicious long hex-like blob (possible encoded payload)."),
