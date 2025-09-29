@@ -44,6 +44,62 @@ DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certif
 
 _RULES = [
 
+    # --- Python-first rule pack (ultra-annotated) ---
+
+    # 1) Python: eval or exec usage (high risk)
+    # - matches: exec("..."), eval(...), with optional whitespace
+    # - why: dynamic execution of text is often the root of RCE via malicious prompt content
+    (r"\b(?:exec|eval)\s*\(", "high", "py_eval_exec",
+     "Uses eval/exec which executes arbitrary Python code."),
+
+    # 2) Python: __import__ dynamic import (high)
+    # - matches: __import__("os") or __import__ (open parenthesis)
+    # - why: dynamic imports can be used to load dangerous modules at runtime
+    (r"__import__\s*\(", "high", "py_import_dynamic",
+     "Dynamic import via __import__ can be used to load modules for malicious actions."),
+
+    # 3) Python: subprocess spawning (high)
+    # - matches: subprocess.Popen( ... ) or subprocess.run( ... )
+    # - why: launching processes (bash, powershell) from Python is a direct exec risk
+    (r"subprocess\.(?:Popen|run|call)\s*\(", "high", "py_subprocess",
+     "Spawns OS processes via subprocess which can execute shell commands."),
+
+    # 4) Python: open(..., 'w' or 'wb') or write() pattern (medium-high)
+    # - matches: open('file','w') or .write( ... )
+    # - why: writing files may be used to drop payloads or exfiltrate data
+    (r"open\s*\([^,]+,\s*['\"](?:w|wb|a|ab)['\"]\s*\)|\.write\s*\(", "medium", "py_file_write",
+     "File write operations that may be used to drop or modify files."),
+
+    # 5) Python: untrusted pickle load (high)
+    # - matches: pickle.loads(...), pickle.load(...)
+    # - why: unpickling untrusted data can execute arbitrary code
+    (r"\bpickle\.(?:loads|load)\s*\(", "high", "py_pickle_untrusted",
+     "Untrusted pickle loading can execute arbitrary code on deserialization."),
+
+    # 6) Python: format string attacks using % or .format (medium)
+    # - matches: "%s" % var  OR  "{}".format(...) typical patterns
+    # - why: attacker-controlled format strings can leak data or exploit templates
+    (r'(?:(?:%s|%r|%d)\s*%|\b\.format\s*\()', "medium", "py_unsafe_formats",
+     "Unsafe template/format usage that can be abused for data exfil or injection."),
+
+    # 7) Python: import os; os.system(...) or os.popen (high)
+    # - matches: os.system("...") or os.popen
+    # - why: direct shell execution from Python
+    (r"\bos\.system\s*\(|\bos\.popen\s*\(", "high", "code_exec_python",
+     "Direct shell execution from Python via os.system/os.popen."),
+
+    # 8) Python: use of eval on f-strings or formatted exec (medium-high)
+    # - matches patterns like f"..." where suspicious markers appear AND eval usage
+    # - why: f-strings with eval-like constructs are dangerous if attacker-controlled
+    (r"f?['\"]\{.*\}['\"]", "medium", "py_eval_fstring",
+     "Potential dynamic f-string / expression usage that may evaluate payloads."),
+
+    # 9) Python: requests to remote endpoints inside Python (medium)
+    # - matches: requests.get("http://...") or urllib.request.urlopen
+    # - why: fetching remote payloads from within Python indicates remote fetch + exec risk
+    (r"(?:requests\.(?:get|post)|urllib\.request\.urlopen)\s*\(", "medium", "py_remote_fetch",
+     "Fetching remote content from Python which could be used to pull payloads."),
+
     # --- Control override / prompt tampering ---
     (r"\bignore|disregard\s+(?:all|any|previous|prior)\s+instructions\b",
      "medium", "ignore_instructions",
@@ -112,6 +168,9 @@ _RULES = [
     (r"\bENV|environment\s+variables\b",
      "medium", "env_vars",
      "Asks about environment variables where secrets may live."),
+
+
+
 ]
 # ------------------------------
 # Compile rules + helpers
@@ -134,6 +193,14 @@ CATEGORY_MAP = {
     "remote_fetch": "exec_risk",
     "base64_indicator": "obfuscation",
     "hex_obfuscation": "obfuscation",
+    # New categories we will use for Python-first pack
+    "code_exec_python": "exec_risk",        # python dynamic exec / subprocess usage
+    "py_eval_exec": "exec_risk",            # eval/exec specific
+    "py_import_dynamic": "exec_risk",       # __import__ usage
+    "py_subprocess": "exec_risk",           # subprocess calls (spawn shell)
+    "py_file_write": "exec_risk",           # writing files to disk via open/write
+    "py_pickle_untrusted": "exec_risk",     # untrusted pickle use -> code execution risk
+    "py_unsafe_formats": "obfuscation",     # template formatting attacks (format, %)
 
     # policy bypass
     "bypass_safety": "policy_bypass",
