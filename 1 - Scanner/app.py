@@ -28,6 +28,9 @@ from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, Fil
 from pydantic import BaseModel, Field
 from fastapi import __version__ as fastapi_version  # show FastAPI version in /__version
 
+from fastapi import Request	          # Request for client IP + headers
+import hashlib                            # to hash the User-Agent (privacy + compact token)
+
 # ANALYTICS helpers (store small recent history in memory; $0 infra)
 from collections import deque, Counter
 
@@ -40,6 +43,85 @@ DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certif
 # App instance + global strings
 # ------------------------------
 app = FastAPI(title="QubitGrid Prompt Injection Scanner")
+
+
+def _mask_ip(ip: str) -> str:
+    """
+    Privacy-friendly IP masking for logs/telemetry (keeps /24 granularity for IPv4).
+    E.g., '203.0.113.42' -> '203.0.113.x'
+    """
+    if not ip or "." not in ip:
+        return ip or "unknown"
+    parts = ip.split(".")
+    parts[-1] = "x"
+    return ".".join(parts)
+
+def _client_token(request: Request) -> tuple[str, str, str]:
+    """
+    Build a token that identifies a 'client' for rate-limiting.
+    Uses: client IP + hashed User-Agent.
+    Returns: (token, ip, ua_hash)
+    """
+    ip = request.client.host if request.client else "unknown"
+    ua = (request.headers.get("user-agent") or "").strip()
+    ua_hash = hashlib.sha256(ua.encode("utf-8")).hexdigest()[:8]  # short, non-reversible label
+    token = f"{ip}|{ua_hash}"
+    return token, ip, ua_hash
+
+def _rate_limit_check_and_increment(request: Request) -> dict | None:
+    """
+    Enforce the FREE_DAILY_LIMIT for anonymous users.
+    - If a valid API key is present (Authorization: Bearer <API_KEY>), we SKIP the limit.
+    - Otherwise we count this request against today's bucket for (IP+UA).
+    Returns None if allowed; returns a dict payload if blocked (429).
+    """
+    # Bypass for paid/API-key users (simple starter policy)
+    if API_KEY and (request.headers.get("authorization", "") == f"Bearer {API_KEY}"):
+        return None
+
+    token, ip, ua_hash = _client_token(request)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    entry = _RATE_LIMIT_BUCKET.get(token)
+    if not entry or entry.get("date") != today:
+        # First request today (or day rolled over) -> reset counter
+        entry = {"date": today, "count": 0}
+        _RATE_LIMIT_BUCKET[token] = entry
+
+    # If already at/over limit -> block
+    if entry["count"] >= FREE_DAILY_LIMIT:
+        # Optional: log the event (goes to your in-memory analytics buffer too)
+        try:
+            log_event("rate_limited", {
+                "ip_masked": _mask_ip(ip),
+                "ua_hash": ua_hash,
+                "limit": FREE_DAILY_LIMIT,
+                "date": today
+            })
+        except Exception:
+            pass
+
+        # Compute a simple reset hint (next midnight UTC)
+        tomorrow = (datetime.utcnow().date() + timedelta(days=1)).isoformat()
+        return {
+            "error": "Free tier daily limit reached.",
+            "limit": FREE_DAILY_LIMIT,
+            "reset_utc_date": tomorrow,
+            "upgrade": "/roadmap"
+        }
+
+    # Otherwise consume one unit and allow
+    entry["count"] += 1
+    try:
+        log_event("rate_limit_increment", {
+            "ip_masked": _mask_ip(ip),
+            "ua_hash": ua_hash,
+            "count": entry["count"],
+            "date": today
+        })
+    except Exception:
+        pass
+    return None
 
 # ---------------------------------------------------------------------
 # In-memory telemetry ring buffer (keeps recent events; survives process lifetime)
@@ -527,7 +609,9 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 # - Output: JSON with flagged (bool), severity, flags[], disclaimer
 # =============================================================================
 @app.get("/scan")
-def scan(text: str = Query(..., description="Text to scan for prompt injection")):
+def scan(
+	request: Request,                                 # <-- add this
+	text: str = Query(..., description="Text to scan for prompt injection")):
     """
     Single-text scan endpoint. All logic must be indented inside this function.
     We:
@@ -537,7 +621,12 @@ def scan(text: str = Query(..., description="Text to scan for prompt injection")
       4. Attempt Slack alert (best-effort)
       5. Return structured JSONResponse
     """
-
+   # ---------- FREE TIER RATE LIMIT (anonymous) ----------
+    rl = _rate_limit_check_and_increment(request)
+    if rl is not None:
+        # Blocked: return a 429 with clear upgrade path.
+        return JSONResponse(rl, status_code=429)
+    # ------------------------------------------------------
     """
     Single-text scan endpoint.
     """
@@ -1075,6 +1164,17 @@ def roadmap_page():
 # - GET /rules returns the compiled rule catalog (useful for debugging/UI)
 # =============================================================================
 APP_VERSION = "scanner-v0.3.3"
+# ------------------------ FREE TIER RATE LIMIT CONFIG -------------------------
+# Daily free-tier limit; can be overridden via env at deploy time
+FREE_DAILY_LIMIT = int(os.getenv("FREE_DAILY_LIMIT", "15"))
+
+# If you already use an API key (e.g., for paid/beta users), set it in env to bypass rate limits
+API_KEY = os.getenv("API_KEY", "").strip()
+
+# In-memory counters:
+# key -> {"date": "YYYY-MM-DD", "count": int}
+_RATE_LIMIT_BUCKET = {}
+# -----------------------------------------------------------------------------
 
 # Base directory of this app file (used to resolve roadmap.html)
 BASE_DIR = pathlib.Path(__file__).parent
