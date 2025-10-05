@@ -21,7 +21,7 @@ from typing import List, Optional, Dict, Any, Tuple
 # FastAPI framework + helpers
 # ------------------------------
 from fastapi import FastAPI, Query, Header, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, FileResponse
 from pydantic import BaseModel, Field
 from fastapi import __version__ as fastapi_version  # show FastAPI version in /__version
 
@@ -435,88 +435,6 @@ def aggregate_flags(raw_flags: list) -> list:
     return list(agg.values())
 
 
-# =============================================================================
-# GET /scan — single-text scan (used by the demo UI)
-# - Input: query param ?text=...
-# - Output: JSON with flagged (bool), severity, flags[], disclaimer
-# =============================================================================
-@app.get("/scan")
-def scan(text: str = Query(..., description="Text to scan for prompt injection")):
-    """
-    Single-text scan endpoint. All logic must be indented inside this function.
-    We:
-      1. Measure start time
-      2. Run compiled regex scanner
-      3. Aggregate duplicate flags (match_count)
-      4. Log telemetry (including truncation + latency)
-      5. Attempt Slack alert (best-effort)
-      6. Return structured JSONResponse
-    """
-    # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
-    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
-    HEAD_RATIO = 0.7                                               # 70% head, 30% tail
-
-    txt = text or ""
-    orig_len = len(txt)
-    truncated = False
-
-    if orig_len > MAX_INPUT_CHARS:
-        head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
-        tail_n = MAX_INPUT_CHARS - head_n
-        head = txt[:head_n]
-        tail = txt[-tail_n:] if tail_n > 0 else ""
-        text = head + "\n...[TRUNCATED]...\n" + tail
-        truncated = True
-    else:
-        text = txt
-    # ---------- END INPUT SIZE POLICY ----------
-
-    # 1) Start timer
-    start = time.time()
-
-    # 2) Run scanner
-    flags, severity = scan_text_rules(text)
-
-    # 3) Aggregate duplicates and trim snippets
-    raw_flags = flags
-    flags = aggregate_flags(raw_flags)
-
-    # 4) Compute latency + telemetry
-    latency_ms = int((time.time() - start) * 1000)
-    try:
-        log_event("scan_performed", {
-            "length": len(text or ""),
-            "flags_count": len(flags),  # unique rules after aggregation
-            "matches_total": sum(f.get("match_count", 1) for f in flags),
-            "severity": severity,
-            "categories": sorted({f.get("category") for f in flags}),
-            "latency_ms": latency_ms,
-            "truncated": truncated,
-            "original_length": orig_len,
-            "scanned_length": len(text),
-        })
-    except Exception:
-        pass
-
-    # 5) Slack alert (best-effort)
-    try:
-        if flags and _should_alert(severity):
-            send_slack_alert(text=text, severity=severity, flags=flags, origin="scan")
-    except Exception:
-        pass
-
-    # 6) Response
-    return JSONResponse({
-        "flagged": len(flags) > 0,
-        "severity": severity,
-        "flags": flags,
-        "matches_total": sum(f.get("match_count", 1) for f in flags),
-        "truncated": truncated,
-        "original_length": orig_len,
-        "scanned_length": len(text),
-        "disclaimer": DISCLAIMER,
-    })
-
 
 # ------------------------------
 # Optional Slack alerting (best-effort)
@@ -756,12 +674,36 @@ def home() -> str:
         return index_file.read_text(encoding="utf-8")
     return "<h2>QubitGrid: UI file not found</h2><p>Please add index.html next to app.py</p>"
 
+@app.get("/roadmap", response_class=HTMLResponse)
+def roadmap_page():
+    """
+    Serve the static Roadmap page.
+
+    Why FileResponse/HTMLResponse?
+    - We return the exact contents of roadmap.html from disk.
+    - Keeping it as a plain file makes it easy to edit without touching Python.
+    """
+    file_path = BASE_DIR / "roadmap.html"
+    if file_path.exists():
+        # FileResponse streams the file with correct headers; read_text also works,
+        # but FileResponse is efficient and avoids manual content-type handling.
+        return FileResponse(file_path)
+    # Fallback message if the file is missing (helps in local dev)
+    return HTMLResponse(
+        "<h2>Roadmap not found</h2><p>Add <code>roadmap.html</code> next to <code>app.py</code>.</p>",
+        status_code=404
+    )
+
+
 # =============================================================================
 # Diagnostics for deploy checks
 # - GET /__version returns a small text string for quick verification
 # - GET /rules returns the compiled rule catalog (useful for debugging/UI)
 # =============================================================================
 APP_VERSION = "scanner-v0.3.3"
+
+# Base directory of this app file (used to resolve roadmap.html)
+BASE_DIR = pathlib.Path(__file__).parent
 
 @app.get("/__version", response_class=PlainTextResponse)
 def version():
@@ -776,6 +718,9 @@ def health():
         "rules": len(_COMPILED),
         "time": datetime.utcnow().isoformat() + "Z",
     }
+
+
+
 
 @app.get("/rules")
 def list_rules():
