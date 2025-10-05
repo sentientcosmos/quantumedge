@@ -16,7 +16,7 @@
     .tagline { margin: 0 0 18px; color:var(--muted); }
     textarea { width:100%; min-height: 140px; background:#0d1116; color:var(--fg);
                border:1px solid #26303c; border-radius:12px; padding:12px; outline:none; }
-    textarea:focus { border-color: var(--accent); }
+    textarea:focus { border-color: Fvar(--accent); }
     .row { display:flex; gap:12px; align-items:center; margin-top:12px; }
     button { background:var(--accent); color:#06121f; border:0; border-radius:12px; padding:10px 16px;
              font-weight:600; cursor:pointer; }
@@ -34,6 +34,46 @@
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
   </style>
+  <!-- QG Feedback widget styles -->
+  <style>
+    /* Floating feedback button */
+    #qg-feedback-btn {
+      position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+      padding: 10px 14px; border-radius: 999px; border: 1px solid #2a3441;
+      background: #0b5bd7; color: #06121f; font-size: 14px; cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25); font-weight: 700;
+    }
+    #qg-feedback-btn:hover { filter: brightness(1.08); }
+
+    /* Modal backdrop */
+    #qg-fb-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      display: none; align-items: center; justify-content: center; z-index: 10000;
+    }
+    /* Modal card */
+    #qg-fb-card {
+      width: 92%; max-width: 520px; background: #151a20; color: #e8eef6;
+      border-radius: 12px; border: 1px solid #232a33; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+      padding: 20px;
+    }
+    #qg-fb-card h3 { margin: 0 0 10px; font-size: 18px; }
+    #qg-fb-card p.small { margin: 6px 0 14px; color: var(--muted); font-size: 12px; }
+    #qg-fb-card label { display:block; font-size: 12px; margin: 10px 0 6px; color:#aab4c2; }
+    #qg-fb-card input, #qg-fb-card select, #qg-fb-card textarea {
+      width: 100%; background:#0d1116; color:var(--fg); border:1px solid #26303c;
+      border-radius:8px; padding:10px; font-size:14px;
+    }
+    #qg-fb-card textarea { min-height: 110px; resize: vertical; }
+    #qg-fb-actions { display:flex; gap:10px; margin-top:14px; justify-content: flex-end; }
+    .qg-btn {
+      padding: 10px 14px; border-radius: 10px; border:1px solid #26303c; cursor:pointer;
+      background:#0b5bd7; color:#06121f; font-weight:700;
+    }
+    .qg-btn.secondary { background:#10151b; color:#e8eef6; }
+    .qg-success { color:#1fa971; background:#12231a; border:1px solid #254d37; padding:8px 10px; border-radius:8px; margin-top:8px; font-size:13px; display:none;}
+    .qg-error { color:#e5484d; background:#321c1c; border:1px solid #6a2426; padding:8px 10px; border-radius:8px; margin-top:8px; font-size:13px; display:none;}
+  </style>
+
 </head>
 <body>
   <div class="wrap">
@@ -146,6 +186,138 @@ document.addEventListener('DOMContentLoaded', () => {
     .catch(() => {});
 });
 </script>
+<!-- Floating Feedback button -->
+<button id="qg-feedback-btn" type="button" aria-haspopup="dialog" aria-controls="qg-fb-backdrop">
+  💬 Feedback
+</button>
+
+<!-- Feedback Modal -->
+<div id="qg-fb-backdrop" role="dialog" aria-modal="true" aria-labelledby="qg-fb-title">
+  <div id="qg-fb-card">
+    <h3 id="qg-fb-title">Tell us what’s <span class="pill low">Real & Recent</span> for you</h3>
+    <p class="small">We read every note. Your message lands in our secure feedback dataset and helps shape Phase 2.</p>
+
+    <!-- NEW: Name (optional) -->
+    <label for="qg-fb-name">Name (optional)</label>
+    <input id="qg-fb-name" type="text" placeholder="Your name (optional)" autocomplete="name" />
+
+    <!-- NEW: Topic dropdown (light structure for analytics) -->
+    <label for="qg-fb-topic">Topic</label>
+    <select id="qg-fb-topic">
+      <option value="">Select a topic...</option>
+      <option value="bug">🐞 Something isn’t working</option>
+      <option value="feature">💡 Feature idea or improvement</option>
+      <option value="ui">🎨 UI / Design feedback</option>
+      <option value="pricing">💵 Pricing / Plans</option>
+      <option value="other">🗣️ Other / General thoughts</option>
+    </select>
+
+    <!-- Existing: Email + Message -->
+    <label for="qg-fb-email">Email (optional)</label>
+    <input id="qg-fb-email" type="email" placeholder="you@company.com" autocomplete="email" />
+
+    <label for="qg-fb-text">Message</label>
+    <textarea id="qg-fb-text" placeholder="What worked? What didn’t? What should we build next?"></textarea>
+
+    <div id="qg-fb-actions">
+      <button id="qg-fb-cancel" type="button" class="qg-btn secondary">Cancel</button>
+      <button id="qg-fb-send"   type="button" class="qg-btn">Send</button>
+    </div>
+
+    <div id="qg-fb-ok" class="qg-success">Thanks — feedback received. 🙌</div>
+    <div id="qg-fb-ko" class="qg-error">Hmm, something went wrong. Please try again.</div>
+  </div>
+</div>
+
+<script>
+  // ========= Feedback widget JS (plain JavaScript) =========
+  // This is "coding" that runs in the browser: it reads field values, calls your FastAPI /feedback,
+  // and shows success/error states. It does not change your backend.
+
+  // Grab elements
+  const fbBtn      = document.getElementById('qg-feedback-btn');
+  const fbBackdrop = document.getElementById('qg-fb-backdrop');
+  const fbCancel   = document.getElementById('qg-fb-cancel');
+  const fbSend     = document.getElementById('qg-fb-send');
+
+  // New fields we added
+  const fbName   = document.getElementById('qg-fb-name');   // input text
+  const fbTopic  = document.getElementById('qg-fb-topic');  // select dropdown
+  // Existing fields
+  const fbEmail  = document.getElementById('qg-fb-email');  // input email
+  const fbText   = document.getElementById('qg-fb-text');   // textarea
+  // Status banners
+  const fbOK     = document.getElementById('qg-fb-ok');
+  const fbKO     = document.getElementById('qg-fb-ko');
+
+  // Open/close helpers
+  function openFeedback() {
+    fbBackdrop.style.display = 'flex';
+    (fbName || fbEmail).focus();  // put cursor in Name for friendliness
+  }
+  function closeFeedback() {
+    fbBackdrop.style.display = 'none';
+    fbOK.style.display = 'none';
+    fbKO.style.display = 'none';
+    fbSend.disabled = false;
+  }
+  // Wire interactions
+  fbBtn.addEventListener('click', openFeedback);
+  fbCancel.addEventListener('click', closeFeedback);
+  fbBackdrop.addEventListener('click', (e)=>{ if (e.target === fbBackdrop) closeFeedback(); });
+
+  // Submit handler: build payload and POST to /feedback
+  fbSend.addEventListener('click', async () => {
+    const name    = (fbName?.value  || '').trim();
+    const email   = (fbEmail?.value || '').trim();
+    const topic   = (fbTopic?.value || '').trim();     // '' if not selected
+    const message = (fbText?.value  || '').trim();     // REQUIRED
+
+    if (!message) {
+      fbKO.textContent = 'Please add a short message.';
+      fbKO.style.display = 'block';
+      return;
+    }
+    fbKO.style.display = 'none';
+    fbSend.disabled = true;
+
+    const payload = {
+      name:  name || null,
+      email: email || null,
+      topic: topic || '',
+      message,
+      meta: { source: 'on_tool_widget', ts: new Date().toISOString() }
+    };
+
+    try {
+      const res = await fetch('/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        // Show success, clear fields, auto-close
+        fbOK.style.display = 'block';
+        if (fbName)  fbName.value  = '';
+        if (fbEmail) fbEmail.value = '';
+        if (fbTopic) fbTopic.value = '';
+        if (fbText)  fbText.value  = '';
+        setTimeout(closeFeedback, 1200);
+      } else {
+        const txt = await res.text();
+        fbKO.textContent = 'Server error: ' + txt;
+        fbKO.style.display = 'block';
+        fbSend.disabled = false;
+      }
+    } catch (err) {
+      fbKO.textContent = 'Network error: ' + (err?.message || err);
+      fbKO.style.display = 'block';
+      fbSend.disabled = false;
+    }
+  });
+</script>
+
 
 </body>
 </html>
