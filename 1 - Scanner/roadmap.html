@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QubitGrid™ — Roadmap</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#111827; --muted:#9aa7b8; --fg:#e8eef6;
+      --line:#233044; --accent:#0b5bd7; --ok:#22c55e; --warn:#f59e0b;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a7c5ff;text-decoration:none} a:hover{text-decoration:underline}
+    .wrap{max-width:980px;margin:40px auto;padding:0 16px}
+    .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+    .title{font-size:28px;font-weight:800}
+    .tag{display:inline-block;border:1px solid var(--line);background:#0e1626;padding:4px 8px;border-radius:999px;font-size:12px;margin-left:8px}
+    nav a{margin-left:14px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 18px 8px;margin:18px 0}
+    .row{display:flex;gap:14px;flex-wrap:wrap}
+    .col{flex:1;min-width:260px}
+    .phase h3{margin:4px 0 8px}
+    .pill{display:inline-block;font-size:11px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);background:#0e1626;margin-left:8px}
+    .pill.ok{border-color:#1e824c;background:#0e1b14;color:#6be59b}
+    .pill.todo{border-color:#3b4556;background:#0e1626;color:#b7c3d6}
+    .eta{font-size:12px;color:var(--muted)}
+    ul{margin:8px 0 12px 18px}
+    .cta{display:flex;gap:12px;margin-top:10px}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--accent);color:#06121f;font-weight:700}
+    .btn.ghost{background:#10151b;color:var(--fg)}
+    .foot{margin-top:26px;font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="title">QubitGrid™ Roadmap <span class="tag">Live Progress</span></div>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/roadmap">Roadmap</a>
+      </nav>
+    </div>
+
+    <!-- Sales blurb: credible + energetic -->
+    <div class="card">
+      <p><strong>Real, recent, relentless.</strong> This is a living roadmap. Phase 1 is live today. Upcoming phases add intelligence, transparency, and compliance muscle. Lifetime buyers get all future modules included.</p>
+    </div>
+
+    <div class="row">
+      <!-- Phase 1 — no date per your strategy -->
+      <div class="card col phase">
+        <h3>Phase 1 — Guardrails MVP <span class="pill ok">DONE</span></h3>
+        <ul>
+          <li>Prompt Injection Scanner (web + API)</li>
+          <li>Rule engine (30+ categories) with severity tagging</li>
+          <li>Head/Tail scanning for large inputs; latency telemetry</li>
+          <li>Aggregate duplicate flags (match_count) for clean results</li>
+        </ul>
+        <div class="cta">
+          <a class="btn" href="/">Try the Scanner</a>
+          <a class="btn ghost" href="#lifetime">Limited-Time Lifetime Access</a>
+        </div>
+      </div>
+
+      <!-- Phase 2 — include dates -->
+      <div class="card col phase">
+        <h3>Phase 2 — Hybrid Intelligence <span class="pill todo">IN PROGRESS</span></h3>
+        <div class="eta">Target: Dec 2025</div>
+        <ul>
+          <li>ML classifier trained on continuously updated real-world security and compliance datasets (rules + ML hybrid)</li>
+          <li>Slack/Discord alerts for high-severity hits</li>
+          <li>Rate limits + Indie Plan (Stripe/Gumroad)</li>
+          <li>Usage analytics page (severity breakdowns & trends)</li>
+        </ul>
+        <div class="cta">
+          <a class="btn" href="#indie">Indie Plan (Early)</a>
+          <a class="btn ghost" href="/docs">API Docs</a>
+        </div>
+      </div>
+
+      <!-- Phase 3 — include dates -->
+      <div class="card col phase">
+        <h3>Phase 3 — Compliance Modules <span class="pill todo">PLANNED</span></h3>
+        <div class="eta">Target: Q2 2026</div>
+        <ul>
+          <li>Privacy Redactor (PII masking pre-LLM)</li>
+          <li>Audit Logger (verifiable traces for regulators)</li>
+          <li>PQC TLS Checker (post-quantum readiness)</li>
+          <li>Unified platform UI (shared auth, billing, analytics)</li>
+        </ul>
+        <div class="cta">
+          <a class="btn ghost" href="#contact">Contact</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricing CTAs (non-functional placeholders you can wire later) -->
+    <div id="lifetime" class="card">
+      <h3>Limited-Time Lifetime Access</h3>
+      <p>This early offer grants permanent access to <strong>MVP 1 — Prompt Injection Scanner</strong> plus a <strong>20% discount</strong> on all upcoming QubitGrid™ products. One-time payment, no subscriptions. Offer available for a 	limited time to our earliest adopters.</p>
+      <div class="cta">
+        <!-- Replace href with your Stripe/Gumroad link when ready -->
+        <a class="btn" href="/buy/lifetime">Get Lifetime</a>
+        <a class="btn ghost" href="/buy/indie" id="indie">Indie Plan (2000 scans/day)</a>
+      </div>
+    </div>
+
+    <div id="contact" class="foot">
+      <p>Questions? <a href="/feedback">Send feedback in-app</a> or email <a href="mailto:hello@qubitgrid.ai">hello@qubitgrid.ai</a>.</p>
+      <p>QubitGrid™ provides pre-audit readiness tools only; not a certified audit.</p>
+    </div>
+  </div>
+</body>
+</html>
