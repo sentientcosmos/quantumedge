@@ -25,13 +25,40 @@ from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, Fil
 from pydantic import BaseModel, Field
 from fastapi import __version__ as fastapi_version  # show FastAPI version in /__version
 
+# ANALYTICS helpers (store small recent history in memory; $0 infra)
+from collections import deque, Counter
+
+# Default product disclaimer (appears in every response/report).
+DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
+
 # ------------------------------
 # App instance + global strings
 # ------------------------------
 app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 
-# Default product disclaimer (appears in every response/report).
-DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
+# ---------------------------------------------------------------------
+# In-memory telemetry ring buffer (keeps recent events; survives process lifetime)
+# Size choice: 5000 is tiny memory but enough for early traction.
+# Each item is a dict: {"ts": "ISO", "event": "scan_performed"|"checkout_intent", "props": {...}}
+ANALYTICS_EVENTS = deque(maxlen=5000)
+
+def _analytics_push(evt: str, props: dict):
+    """
+    Helper: push a normalized analytics record into memory.
+    Called inside log_event() so all existing calls benefit automatically.
+    """
+    try:
+        ANALYTICS_EVENTS.append({
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "event": evt,
+            "props": props or {}
+        })
+    except Exception as e:
+        # Non-fatal: never block scans because of analytics
+        print("[analytics] in-memory push failed:", e)
+
+
+
 
 # =======================
 # RULES SECTION (QubitGrid)
@@ -341,11 +368,28 @@ for pattern, severity, rid, why in _RULES:
 # ------------------------------
 def log_event(event_name: str, props: Dict[str, Any]) -> None:
     """
-    Print a small JSON-ish line to stdout for visibility in logs.
-    This keeps the MVP simple (no external analytics yet).
+    Unified analytics logger.
+
+    What it does:
+    - Prints a compact analytics line to STDOUT (so you see it in your terminal / Render logs).
+    - ALSO appends a normalized record to the in-memory ring buffer (ANALYTICS_EVENTS),
+      via _analytics_push(...). This enables a zero-cost /analytics summary endpoint next.
+
+    Why this matters:
+    - You keep your current simple logging flow (no infra).
+    - You gain instant ability to summarize usage later without databases.
     """
     ts = datetime.utcnow().isoformat() + "Z"
+
+    # 1) Print to logs (what you already had)
     print(f"[analytics] {{'ts':'{ts}','event':'{event_name}','props':{props}}}")
+
+    # 2) Push into in-memory buffer for later aggregation (/analytics)
+    try:
+        _analytics_push(event_name, props or {})
+    except Exception as e:
+        # Never break app behavior because of analytics
+        print("[analytics] in-memory push failed:", e)
 
 # ------------------------------
 # Helper: produce a short snippet around a match
