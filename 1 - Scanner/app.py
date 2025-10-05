@@ -16,17 +16,22 @@ import urllib.request     # simple HTTP POST (used for Slack webhook)
 import time  # for latency analytics
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
+from collections import Counter  # used to count severities & plans
+from datetime import timedelta   # used to compute the N-day window
 
 # ------------------------------
 # FastAPI framework + helpers
 # ------------------------------
 from fastapi import FastAPI, Query, Header, HTTPException
+from fastapi import Form
 from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, FileResponse
 from pydantic import BaseModel, Field
 from fastapi import __version__ as fastapi_version  # show FastAPI version in /__version
 
 # ANALYTICS helpers (store small recent history in memory; $0 infra)
 from collections import deque, Counter
+
+
 
 # Default product disclaimer (appears in every response/report).
 DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
@@ -609,6 +614,331 @@ def scan(text: str = Query(..., description="Text to scan for prompt injection")
         "scanned_length": len(text),
         "disclaimer": DISCLAIMER,
     })
+
+@app.get("/analytics")
+def analytics_summary(days: int = 7):
+    """
+    JSON summary of recent usage, computed from in-memory events (ANALYTICS_EVENTS).
+
+    Query params:
+      - days (int, default 7): how many days back to include (bounded 1..30)
+
+    Returns JSON like:
+    {
+      "window_days": 7,
+      "totals": { "scans": 123, "checkout_intents": 5 },
+      "by_severity": { "high": 10, "medium": 25, "low": 88 },
+      "checkout_intents_by_plan": { "indie": 3, "lifetime": 2 },
+      "series": [ {"date":"2025-10-01", "scans":3}, ..., {"date":"2025-10-07","scans":8} ]
+    }
+
+    Notes:
+      - This is ZERO infra: data lives only in memory and resets on process restart.
+      - Good enough for early GTM signal and local testing.
+    """
+    # ---- 1) Sanitize/limit the days parameter (avoid silly values) ----
+    try:
+        days = int(days)
+    except Exception:
+        days = 7
+    days = max(1, min(days, 30))
+
+    # ---- 2) Compute cutoff timestamp for the window ----
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    # ---- 3) Filter events to the window and parse timestamps defensively ----
+    recent = []  # list of tuples (ts_datetime, event_dict)
+    for rec in list(ANALYTICS_EVENTS):  # copy to avoid mutation during iteration
+        ts_str = rec.get("ts")
+        if not ts_str:
+            continue
+        try:
+            # Stored as "YYYY-MM-DDTHH:MM:SS.sssZ" — strip trailing 'Z' for fromisoformat
+            ts = datetime.fromisoformat(ts_str.replace("Z", ""))
+        except Exception:
+            continue
+        if ts >= cutoff:
+            recent.append((ts, rec))
+
+    # ---- 4) Aggregate into counters ----
+    total_scans = 0
+    severity_counter = Counter()      # e.g., {"high": 10, "medium": 5}
+    checkout_counter = Counter()      # e.g., {"indie": 3, "lifetime": 2}
+    daily_counter = Counter()         # e.g., {"2025-10-05": 8, ...}
+
+    for ts, rec in recent:
+        evt = (rec.get("event") or "").lower()
+        props = rec.get("props", {}) or {}
+        date_key = ts.strftime("%Y-%m-%d")
+
+        if evt == "scan_performed":
+            total_scans += 1
+            sev = (props.get("severity") or "unknown").lower()
+            severity_counter[sev] += 1
+            daily_counter[date_key] += 1
+
+        elif evt == "checkout_intent":
+            plan = (props.get("plan") or "unknown").lower()
+            checkout_counter[plan] += 1
+
+        # You can extend with more events later (e.g., "feedback_received")
+
+    # ---- 5) Build a continuous day-by-day series (even if zero scans) ----
+    series = []
+    # We include "days" days back up to today (inclusive)
+    for i in range(days, -1, -1):
+        d = (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d")
+        series.append({"date": d, "scans": int(daily_counter.get(d, 0))})
+
+    # ---- 6) Return the summary JSON ----
+    return JSONResponse({
+        "window_days": days,
+        "totals": {
+            "scans": total_scans,
+            "checkout_intents": int(sum(checkout_counter.values()))
+        },
+        "by_severity": dict(severity_counter),
+        "checkout_intents_by_plan": dict(checkout_counter),
+        "series": series
+    })
+@app.get("/analytics.html", response_class=HTMLResponse)
+def analytics_html():
+    """
+    Minimal HTML dashboard for live usage.
+    - Reads JSON from /analytics?days=7 via fetch()
+    - Renders totals, severity, checkout intents, and a sparkline
+    Pure client-side; zero extra dependencies.
+    """
+    return HTMLResponse("""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>QubitGrid™ — Analytics</title>
+<style>
+  :root{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
+  .wrap{max-width:900px;margin:32px auto;padding:0 16px}
+  h1{margin:0 0 12px}
+  .card{background:#111827;border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:#c6d1de}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{border-bottom:1px solid var(--line);text-align:left;padding:8px 6px}
+  a{color:#a7c5ff;text-decoration:none}
+  .muted{color:var(--muted);font-size:12px}
+  svg{width:100%;height:60px;background:#0d1116;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>QubitGrid™ — Analytics</h1>
+    <div class="muted">Simple live summary powered by <code>/analytics?days=7</code>. In-memory only.</div>
+
+    <div class="card" id="totals">
+      <div class="row">
+        <div class="pill" id="p_scans">scans: —</div>
+        <div class="pill" id="p_intents">checkout intents: —</div>
+        <div class="pill" id="p_window">window: — days</div>
+      </div>
+      <div style="margin-top:12px">
+        <svg id="spark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Scans by severity</h3>
+      <table id="sev"><thead><tr><th>severity</th><th>count</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="card">
+      <h3>Checkout intents by plan</h3>
+      <table id="plan"><thead><tr><th>plan</th><th>count</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="muted">QubitGrid™ provides pre-audit readiness tools only; not a certified audit. <a href="/roadmap">Back to Roadmap</a></div>
+  </div>
+
+<script>
+(async function(){
+  // 1) Fetch JSON summary
+  const res = await fetch('/analytics?days=7');
+  if(!res.ok){ document.body.innerHTML = '<p style="padding:20px">Failed to load /analytics</p>'; return; }
+  const data = await res.json();
+
+  // 2) Totals / header pills
+  document.getElementById('p_scans').textContent = 'scans: ' + (data.totals?.scans ?? 0);
+  document.getElementById('p_intents').textContent = 'checkout intents: ' + (data.totals?.checkout_intents ?? 0);
+  document.getElementById('p_window').textContent = 'window: ' + (data.window_days ?? 7) + ' days';
+
+  // 3) Build severity table
+  const sevBody = document.querySelector('#sev tbody');
+  const sev = data.by_severity || {};
+  const sevRows = Object.keys(sev).sort().map(k => `<tr><td>${k}</td><td>${sev[k]}</td></tr>`).join('');
+  sevBody.innerHTML = sevRows || '<tr><td colspan="2">no data</td></tr>';
+
+  // 4) Build checkout intents table
+  const planBody = document.querySelector('#plan tbody');
+  const plans = data.checkout_intents_by_plan || {};
+  const planRows = Object.keys(plans).sort().map(k => `<tr><td>${k}</td><td>${plans[k]}</td></tr>`).join('');
+  planBody.innerHTML = planRows || '<tr><td colspan="2">no data</td></tr>';
+
+  // 5) Draw sparkline of daily scans
+  // data.series = [{date:'YYYY-MM-DD', scans:n}, ...]
+  const s = Array.isArray(data.series) ? data.series : [];
+  const values = s.map(d => Number(d.scans||0));
+  const svg = document.getElementById('spark');
+  const W = 300, H = 60, P = 4; // width, height, padding
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  if(values.length === 0){
+    svg.innerHTML = '<text x="8" y="34" fill="#9aa7b8" font-size="12">no data</text>';
+    return;
+  }
+
+  const max = Math.max(1, ...values);
+  const step = (W - 2*P) / Math.max(1, values.length - 1);
+  let d = '';
+  values.forEach((v, i) => {
+    const x = P + i * step;
+    const y = H - P - (v / max) * (H - 2*P);
+    d += (i===0 ? 'M' : 'L') + x + ' ' + y + ' ';
+  });
+
+  svg.innerHTML = `
+    <polyline fill="none" stroke="#5aa2ff" stroke-width="2" points="${
+      values.map((v,i)=>{
+        const x = P + i * step;
+        const y = H - P - (v / max) * (H - 2*P);
+        return x+','+y;
+      }).join(' ')
+    }"/>
+  `;
+})();
+</script>
+</body></html>""")
+
+
+# -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
+# Purpose:
+# - Let interested users leave their email for two plans WITHOUT taking payment.
+# - We capture intent -> log_event("checkout_intent", {...}), optionally Slack notify,
+#   and also store via your feedback pipeline for later ML training / follow-up.
+
+def _buy_page_html(plan_label: str, plan_code: str) -> str:
+    """
+    Helper that returns a small self-contained HTML page for the "buy" flow.
+    Why a helper?
+      - Keeps the two GET pages (indie/lifetime) tiny and consistent.
+      - No external templates needed; $0 cost, easy to edit inline.
+    """
+    return f"""<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>QubitGrid™ — {plan_label}</title>
+<style>
+  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7}}
+  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}}
+  .wrap{{max-width:720px;margin:40px auto;padding:0 16px}}
+  .card{{background:#111827;border:1px solid var(--line);border-radius:14px;padding:20px}}
+  h1{{margin:4px 0 10px}} p{{color:var(--muted)}}
+  label{{display:block;margin:12px 0 6px;font-size:13px;color:#c6d1de}}
+  input{{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0d1116;color:var(--fg)}}
+  .row{{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}}
+  .btn{{padding:10px 14px;border-radius:10px;border:1px solid var(--line);font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}}
+  .primary{{background:var(--accent);color:#06121f}}
+  .ghost{{background:#10151b;color:var(--fg)}}
+  a{{color:#a7c5ff}}
+  .foot{{margin-top:18px;font-size:12px;color:var(--muted)}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>{plan_label}</h1>
+      <p>This is a <strong>non-charging test checkout</strong>. Enter your email and we’ll notify you when payment opens. Your interest helps prioritize the roadmap.</p>
+
+      <!-- We POST to /buy/intent with a hidden plan code and the user's email -->
+      <form method="post" action="/buy/intent">
+        <input type="hidden" name="plan" value="{plan_code}">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required placeholder="you@company.com" autocomplete="email" />
+        <div class="row">
+          <button class="btn primary" type="submit">Notify me</button>
+          <a class="btn ghost" href="/roadmap">Back to Roadmap</a>
+        </div>
+      </form>
+
+      <div class="foot">QubitGrid™ provides pre-audit readiness tools only; not a certified audit.</div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+@app.get("/buy/lifetime", response_class=HTMLResponse)
+def buy_lifetime_page():
+    """GET page for Limited-Time Lifetime Access (test; no payments)."""
+    return HTMLResponse(_buy_page_html("Limited-Time Lifetime Access — Test Checkout", "lifetime"))
+
+@app.get("/buy/indie", response_class=HTMLResponse)
+def buy_indie_page():
+    """GET page for Indie Plan (test; no payments)."""
+    return HTMLResponse(_buy_page_html("Indie Plan (2000 scans/day) — Test Checkout", "indie"))
+
+@app.post("/buy/intent")
+def buy_intent(plan: str = Form(...), email: str = Form(...)):
+    """
+    Form POST target. Captures interest (plan + email).
+    We DO NOT charge here. We only log and notify so you can validate demand on $0 infra.
+    """
+    # 1) Minimal validation / normalization
+    plan = (plan or "").strip().lower()
+    email = (email or "").strip()
+
+    # 2) Log analytics (this also pushes into the in-memory buffer via log_event)
+    try:
+        log_event("checkout_intent", {
+            "plan": plan,
+            "email": email,
+            "source": "roadmap"
+        })
+    except Exception as e:
+        print("[analytics] checkout_intent log failed:", e)
+
+    # 3) Best-effort Slack alert (so you see it instantly in your Slack channel)
+    try:
+        send_slack_alert(
+            text=f"🛒 checkout_intent • plan={plan} • email={email}",
+            severity="info",
+            flags=[],
+            origin="checkout"
+        )
+    except Exception as e:
+        print("slack alert error:", e)
+
+    # 4) Save via your feedback dataset pipeline (reuses existing storage path)
+    try:
+        save_feedback_to_dataset({
+            "email": email,
+            "message": f"checkout_intent:{plan}",
+            "meta": {"source": "checkout_widget", "ts": datetime.utcnow().isoformat() + "Z"}
+        })
+    except Exception as e:
+        print("feedback save error:", e)
+
+    # 5) Thank-you response (simple HTML)
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>Thanks — QubitGrid</title></head>
+    <body style="background:#0b1220;color:#e8eef6;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif">
+      <div style="max-width:720px;margin:40px auto;padding:20px;border-radius:14px;border:1px solid #233044;background:#111827">
+        <h1>Thanks!</h1>
+        <p>We recorded your interest for <strong>{plan}</strong>. We’ll email <strong>{email}</strong> when checkout opens.</p>
+        <p><a href="/roadmap" style="color:#a7c5ff">Back to Roadmap</a></p>
+        <p style="color:#9aa7b8;font-size:12px">QubitGrid™ provides pre-audit readiness tools only; not a certified audit.</p>
+      </div>
+    </body></html>""")
+# ----------------------- END BUY PAGES (TEST CHECKOUT) ------------------------
+
+
 
 # =============================================================================
 # Pydantic models for batch endpoint (/report)
