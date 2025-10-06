@@ -1263,6 +1263,26 @@ def health():
         "rules": len(_COMPILED),
         "time": datetime.utcnow().isoformat() + "Z",
     }
+# ---- Public pricing model (read-only) ----------------------------------------
+@app.get("/pricing")
+def get_pricing():
+    """
+    Returns the pricing model the backend is using, plus the resolved Free daily limit.
+    - Source of truth is PRICING_MODEL_CONTEXT.json (already loaded at startup).
+    - Env var FREE_DAILY_LIMIT (if set) overrides the Free tier limit.
+    Safe to expose: it's the same info you want customers to see on the UI.
+    """
+    # Build a shallow copy so we can include the effective limit without mutating the loaded model.
+    model = {"meta": PRICING_MODEL.get("meta", {}),
+             "tiers": PRICING_MODEL.get("tiers", [])}
+    return {
+        "model": model,
+        "effective": {
+            "free_daily_limit": FREE_DAILY_LIMIT,
+            "version": PRICING_MODEL.get("meta", {}).get("version", "unknown")
+        },
+        "disclaimer": DISCLAIMER
+    }
 
 
 

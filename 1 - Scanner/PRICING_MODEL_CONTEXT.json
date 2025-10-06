@@ -1,0 +1,80 @@
+{
+  "meta": {
+    "version": "2025-10-05",
+    "description": "QubitGrid Scanner tier definitions and pricing strategy summary"
+  },
+  "tiers": [
+    {
+      "name": "Free",
+      "monthly_price_usd": 0,
+      "scan_limit_per_day": 100,
+      "features": [
+        "Live scanner access",
+        "Core rule engine",
+        "UI demo",
+        "Basic API key (rate-limited)",
+        "Community support only"
+      ]
+    },
+    {
+      "name": "Indie",
+      "monthly_price_usd": 9,
+      "scan_limit_per_day": 1000,
+      "features": [
+        "All Free features",
+        "Slack or Discord alerts for high-severity rules",
+        "Analytics view (7-day history)",
+        "CSV export",
+        "PDF sample report with watermark"
+      ]
+    },
+    {
+      "name": "Pro",
+      "monthly_price_usd": 29,
+      "scan_limit_per_day": 5000,
+      "features": [
+        "All Indie features",
+        "Full PDF report (no watermark)",
+        "OWASP LLM Top 10 mapping section",
+        "Webhook integrations",
+        "Priority processing queue"
+      ]
+    },
+    {
+      "name": "Team",
+      "monthly_price_usd": 99,
+      "scan_limit_per_day": 20000,
+      "features": [
+        "All Pro features",
+        "Up to 5 user seats (multi-key)",
+        "SSO starter (Google/GitHub login)",
+        "Project-based usage tracking",
+        "Custom logo in reports",
+        "Email support"
+      ]
+    },
+    {
+      "name": "Enterprise",
+      "monthly_price_usd": "Custom",
+      "scan_limit_per_day": "Custom",
+      "features": [
+        "All Team features",
+        "Full SSO (SAML/OAuth2)",
+        "Data residency options (EU/US regions)",
+        "SOC2-friendly audit logs",
+        "SLA-backed support",
+        "On-premise or VPC deployment"
+      ]
+    },
+    {
+      "name": "Lifetime",
+      "one_time_price_usd": 149,
+      "features": [
+        "All Pro features as of purchase date",
+        "5000 scans/day",
+        "No recurring billing",
+        "Limited offer: 100 seats or 30 days post-launch"
+      ]
+    }
+  ]
+}
