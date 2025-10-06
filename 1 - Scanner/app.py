@@ -19,6 +19,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter  # used to count severities & plans
 from datetime import timedelta   # used to compute the N-day window
 
+
 # ------------------------------
 # FastAPI framework + helpers
 # ------------------------------
@@ -1164,20 +1165,90 @@ def roadmap_page():
 # - GET /rules returns the compiled rule catalog (useful for debugging/UI)
 # =============================================================================
 APP_VERSION = "scanner-v0.3.3"
-# ------------------------ FREE TIER RATE LIMIT CONFIG -------------------------
-# Daily free-tier limit; can be overridden via env at deploy time
-FREE_DAILY_LIMIT = int(os.getenv("FREE_DAILY_LIMIT", "15"))
 
-# If you already use an API key (e.g., for paid/beta users), set it in env to bypass rate limits
-API_KEY = os.getenv("API_KEY", "").strip()
 
-# In-memory counters:
-# key -> {"date": "YYYY-MM-DD", "count": int}
-_RATE_LIMIT_BUCKET = {}
 # -----------------------------------------------------------------------------
 
 # Base directory of this app file (used to resolve roadmap.html)
 BASE_DIR = pathlib.Path(__file__).parent
+
+# --------------------- PRICING MODEL (authoritative source) -------------------
+PRICING_MODEL_PATH = pathlib.Path(__file__).parent / "PRICING_MODEL_CONTEXT.json"
+
+def _load_pricing_model() -> Dict[str, Any]:
+    """
+    Load the pricing/tier model from JSON on disk.
+    This is the SINGLE SOURCE OF TRUTH for:
+      - tier names, limits, feature flags
+      - UI rendering notes (later)
+      - upgrade gating (later)
+      - Stripe/Gumroad product mapping (later)
+    """
+    try:
+        with open(PRICING_MODEL_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Light sanity checks (defensive)
+            assert "tiers" in data and isinstance(data["tiers"], list)
+            return data
+    except Exception as e:
+        # Fail-soft: if missing or invalid, run with empty model (but log loudly)
+        print("[pricing] failed to load model:", e)
+        return {"meta": {"version": "unknown"}, "tiers": []}
+
+PRICING_MODEL = _load_pricing_model()
+
+def _tier_by_name(name: str) -> Dict[str, Any]:
+    """
+    Helper: fetch a tier dict by its name (case-insensitive).
+    Returns {} if not found.
+    """
+    name = (name or "").strip().lower()
+    for t in PRICING_MODEL.get("tiers", []):
+        if t.get("name", "").strip().lower() == name:
+            return t
+    return {}
+
+def _free_daily_limit_from_model(default: int = 15) -> int:
+    """
+    Pull 'scan_limit_per_day' from the 'Free' tier in the pricing model.
+    If absent or invalid, fall back to DEFAULT or env override.
+    Env override: if FREE_DAILY_LIMIT is set, that wins (ops control).
+    """
+    # 1) Ops override wins
+    env_override = os.getenv("FREE_DAILY_LIMIT")
+    if env_override:
+        try:
+            return int(env_override)
+        except Exception:
+            pass
+
+    # 2) Model value from 'Free' tier
+    free = _tier_by_name("Free")
+    try:
+        val = int(free.get("scan_limit_per_day"))
+        return max(1, val)
+    except Exception:
+        return default
+
+
+# ------------------------ FREE TIER RATE LIMIT CONFIG -------------------------
+# Pull the daily free-tier limit from the authoritative pricing model (with env override).
+# - If FREE_DAILY_LIMIT env var is set, it wins (ops control).
+# - Otherwise we read "scan_limit_per_day" from the "Free" tier in PRICING_MODEL_CONTEXT.json.
+FREE_DAILY_LIMIT = _free_daily_limit_from_model(default=15)
+
+# If you already use an API key (e.g., for paid/beta users), set it in env to bypass rate limits.
+API_KEY = os.getenv("API_KEY", "").strip()
+
+# In-memory counters for anonymous rate limit:
+# token (ip|ua-hash) -> {"date": "YYYY-MM-DD", "count": int}
+_RATE_LIMIT_BUCKET = {}
+# ----------------------------------------------------------------------------- 
+
+
+# ----------------------------------------------------------------------------- 
+
+
 
 @app.get("/__version", response_class=PlainTextResponse)
 def version():
