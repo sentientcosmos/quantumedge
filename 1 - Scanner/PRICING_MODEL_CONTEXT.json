@@ -1,80 +1,138 @@
 {
   "meta": {
     "version": "2025-10-05",
-    "description": "QubitGrid Scanner tier definitions and pricing strategy summary"
+    "description": "QubitGrid Scanner tier definitions and pricing copy (authoritative)",
+    "notes": [
+      "UI renders features and marketing_message directly from this file.",
+      "Backend rate-limit reads scan_limit_per_day from the 'Free' tier unless FREE_DAILY_LIMIT env override is set."
+    ]
   },
   "tiers": [
     {
       "name": "Free",
+      "label": "Scan & Learn",
       "monthly_price_usd": 0,
       "scan_limit_per_day": 100,
+      "purpose": "Let new users instantly see their LLM prompts tested for risk without commitment.",
+      "audience": "Experimenting indie devs, hackathon projects, learners.",
       "features": [
-        "Live scanner access",
-        "Core rule engine",
-        "UI demo",
-        "Basic API key (rate-limited)",
-        "Community support only"
-      ]
+        "Instant live scanner (no signup friction)",
+        "Core rule engine: injection, exfiltration, credentials, bearer tokens, exec patterns",
+        "Real-time results in web UI",
+        "Health & version checks for transparency",
+        "No Slack alerts, no PDF reports, no exports",
+        "100 scans/day soft limit (reset daily)"
+      ],
+      "ui_notes": "Show progress bar; disable Slack/PDF/CSV; CTA to Indie.",
+      "marketing_message": "Try QubitGrid risk-free. Catch your first injection attempt in 30 seconds — no credit card required."
     },
     {
       "name": "Indie",
+      "label": "Build Responsibly",
       "monthly_price_usd": 9,
       "scan_limit_per_day": 1000,
+      "purpose": "Empower indie developers and solopreneurs to ship AI features with basic safety telemetry and alerts.",
+      "audience": "Indie devs, micro-SaaS founders, freelancers embedding GPT APIs.",
       "features": [
-        "All Free features",
-        "Slack or Discord alerts for high-severity rules",
-        "Analytics view (7-day history)",
-        "CSV export",
-        "PDF sample report with watermark"
-      ]
+        "Everything in Free",
+        "Slack or Discord alert integration for high-severity rules",
+        "7-day analytics history (usage & severity trends)",
+        "CSV export of scan logs",
+        "PDF sample report (with watermark) for client demos",
+        "Watermarked reports and limited analytics window"
+      ],
+      "ui_notes": "Enable alerts/CSV; show PDF watermark note; CTA to Pro.",
+      "marketing_message": "Ship AI projects that clients trust. Indie plan adds Slack alerts, CSV logs, and report samples you can show in your pitch decks."
     },
     {
       "name": "Pro",
+      "label": "Audit-Ready Confidence",
       "monthly_price_usd": 29,
       "scan_limit_per_day": 5000,
+      "purpose": "Give serious startups compliance-ready visibility into their prompt security posture.",
+      "audience": "Startups and dev teams preparing for customers, investors, or audits.",
+      "analytics_retention_days": 30,
       "features": [
         "All Indie features",
-        "Full PDF report (no watermark)",
-        "OWASP LLM Top 10 mapping section",
-        "Webhook integrations",
-        "Priority processing queue"
-      ]
+        "Full PDF reports (no watermark)",
+        "OWASP LLM Top-10 risk mapping section",
+        "Webhook integrations (notify your system on new findings)",
+        "Priority scan queue (faster turnaround)",
+        "30-day analytics retention"
+      ],
+      "ui_notes": "Badge 'Most Popular'; highlight full PDF sample.",
+      "marketing_message": "Turn prompt safety into an advantage. Pro gives you the reports and audit trails investors expect."
     },
     {
       "name": "Team",
+      "label": "Compliance for Startups",
       "monthly_price_usd": 99,
       "scan_limit_per_day": 20000,
+      "seats": 5,
+      "purpose": "Support growing teams collaborating on multiple AI projects with shared analytics and branded reports.",
+      "audience": "Small startups, AI consultancies, agencies.",
       "features": [
         "All Pro features",
-        "Up to 5 user seats (multi-key)",
-        "SSO starter (Google/GitHub login)",
-        "Project-based usage tracking",
-        "Custom logo in reports",
-        "Email support"
-      ]
+        "Multi-user access (5 seats, multiple API keys)",
+        "SSO Starter (Sign in with Google/GitHub)",
+        "Project-based usage analytics",
+        "Custom logo on reports and emails",
+        "Email support (next-business-day)"
+      ],
+      "ui_notes": "Show seat count and project usage; CTA to Enterprise.",
+      "marketing_message": "Collaborate safely across projects. Team plan adds shared dashboards, custom branding, and multi-seat control."
     },
     {
       "name": "Enterprise",
+      "label": "Governance & Scale",
       "monthly_price_usd": "Custom",
       "scan_limit_per_day": "Custom",
+      "purpose": "Provide enterprise-grade compliance and deployment options for regulated or high-volume environments.",
+      "audience": "Mid-size and large organizations needing on-premise or SOC2-aligned scanning.",
       "features": [
         "All Team features",
         "Full SSO (SAML/OAuth2)",
-        "Data residency options (EU/US regions)",
-        "SOC2-friendly audit logs",
-        "SLA-backed support",
-        "On-premise or VPC deployment"
-      ]
+        "Data residency control (EU / US regions)",
+        "SOC2-friendly audit logging",
+        "SLA-backed uptime and support",
+        "On-premise or VPC deployment options"
+      ],
+      "ui_notes": "Hide price; 'Contact Sales' button; dynamic form can pre-fill usage.",
+      "marketing_message": "Bring QubitGrid inside your compliance perimeter. Enterprise gives you complete control over data, security, and uptime."
     },
     {
       "name": "Lifetime",
+      "label": "Founding Supporter",
       "one_time_price_usd": 149,
+      "scan_limit_per_day": 5000,
+      "availability": "Limited to 100 users or first 30 days after launch",
+      "purpose": "Reward early believers and bootstrap cash flow during launch.",
+      "audience": "Early adopters who want permanent access and to support development.",
       "features": [
-        "All Pro features as of purchase date",
-        "5000 scans/day",
+        "All Pro-tier features as of purchase date",
+        "5,000 scans/day limit",
         "No recurring billing",
-        "Limited offer: 100 seats or 30 days post-launch"
-      ]
+        "Does not include future Enterprise-exclusive capabilities (SSO, data residency, etc.)"
+      ],
+      "ui_notes": "Show countdown/seat counter; after expiry hide and keep Pro.",
+      "marketing_message": "Become a Founding Member — lifetime access to Pro for less than two months of subscription. Limited to the first 100 believers."
     }
-  ]
+  ],
+  "strategy_summary": {
+    "ui_display_guidelines": [
+      "Show progress bar for scan usage",
+      "Grey out features not in the current plan",
+      "Highlight 'Most Popular' on Pro",
+      "Lifetime shows countdown or seat counter",
+      "Include pre-audit disclaimer on pages & PDFs"
+    ],
+    "upgrade_triggers": {
+      "Free": "Hits 100/day cap or needs Slack alerts",
+      "Indie": "Needs PDF sample or analytics",
+      "Pro": "Needs unwatermarked PDF and audit mapping",
+      "Team": "Needs shared keys and custom branding",
+      "Enterprise": "Needs SSO/SLA/region controls",
+      "Lifetime": "Limited run to build credibility and cash flow"
+    }
+  }
 }
