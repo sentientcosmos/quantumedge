@@ -907,6 +907,134 @@ def analytics_html():
 </script>
 </body></html>""")
 
+# >>> SECTION A (BEGIN)
+# ================================
+# PDF REPORT ENDPOINT (Phase 1.5)
+# ================================
+from io import BytesIO                               # in-memory PDF stream
+from fastapi.responses import StreamingResponse      # return PDF bytes
+from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
+
+# Ensure API_KEY exists for gating paid features
+API_KEY = os.getenv("API_KEY", "").strip()
+
+class ReportPayload(BaseModel):
+    text: str = Field(..., description="Text to scan and include in PDF")
+    title: Optional[str] = Field(None, description="Optional title shown on the report")
+    client: Optional[str] = Field(None, description="Optional client label shown on the report")
+
+def _auth_ok(authorization_hdr: str | None, x_api_key_hdr: str | None) -> bool:
+    """
+    Gatekeeper for paid endpoints.
+    If API_KEY is defined, require either:
+      Authorization: Bearer <API_KEY>  OR  X-API-Key: <API_KEY>
+    If API_KEY is not set, allow local testing.
+    """
+    if not API_KEY:
+        return True
+    if authorization_hdr and authorization_hdr.strip() == f"Bearer {API_KEY}":
+        return True
+    if x_api_key_hdr and x_api_key_hdr.strip() == API_KEY:
+        return True
+    return False
+
+@app.post("/report/pdf")
+def create_pdf_report(
+    request: Request,
+    payload: ReportPayload,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    # Gate for paid tiers
+    if not _auth_ok(authorization, x_api_key):
+        # Keep wording clear for upgrades later
+        raise HTTPException(status_code=402, detail="Paid feature. Provide a valid API key.")
+
+    # Reuse the rule engine for a single scan
+    flags_raw, severity = scan_text_rules(payload.text or "")
+    flags = aggregate_flags(flags_raw)
+
+    # Summaries for the report
+    sev_counts = Counter([f.get("severity", "low") for f in flags])
+    cat_counts = Counter([f.get("category", "misc") for f in flags])
+
+    # Build PDF in memory
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=LETTER)
+    width, height = LETTER
+    margin = 0.8 * inch
+    y = height - margin
+
+    def line(txt, sz=11, dy=14, bold=False):
+        nonlocal y
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", sz)
+        c.drawString(margin, y, txt)
+        y -= dy
+
+    # Header
+    line("QubitGrid™ — Prompt Injection Scan Report", sz=14, dy=20, bold=True)
+    if payload.title:
+        line(f"Title: {payload.title}", sz=11, dy=14)
+    if payload.client:
+        line(f"Client: {payload.client}", sz=11, dy=14)
+
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    line(f"Generated: {ts}", sz=10, dy=12)
+    line(f"Overall Severity: {severity.upper()}", sz=11, dy=16, bold=True)
+    line("Summary", sz=12, dy=16, bold=True)
+    line(f"High: {sev_counts.get('high',0)}   Medium: {sev_counts.get('medium',0)}   Low: {sev_counts.get('low',0)}")
+
+    # Categories
+    if cat_counts:
+        line("Categories", sz=12, dy=16, bold=True)
+        for cat, n in cat_counts.most_common():
+            line(f"• {cat}: {n}")
+
+    # Findings table
+    line("Findings", sz=12, dy=16, bold=True)
+    if not flags:
+        line("No rules matched in this scan.")
+    else:
+        for f in flags:
+            rid = f.get("id","?")
+            sev = f.get("severity","?")
+            why = f.get("why","")
+            snip = f.get("snippet","")
+            # Item
+            line(f"[{sev.upper()}] {rid}", sz=11, dy=14, bold=True)
+            line(f"Reason: {why}", sz=10, dy=12)
+            line(f"Snippet: {snip}", sz=10, dy=14)
+            # New page if we run out of space
+            if y < margin + 60:
+                c.showPage()
+                y = height - margin
+
+    # Disclaimer footer
+    c.setFont("Helvetica-Oblique", 9)
+    c.drawString(margin, margin, DISCLAIMER)
+    c.showPage()
+    c.save()
+
+    # Telemetry
+    try:
+        log_event("report_pdf_generated", {
+            "severity": severity,
+            "length": len(payload.text or ""),
+            "flags": len(flags),
+        })
+    except Exception:
+        pass
+
+    buf.seek(0)
+    filename = f"qubitgrid_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+# <<< INSERT: SECTION A (END)
 
 # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
 # Purpose:

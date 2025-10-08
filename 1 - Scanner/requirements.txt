@@ -2,3 +2,8 @@ fastapi
 uvicorn
 pydantic
 python-multipart>=0.0.9
+
+# >>> INSERT: SECTION A (BEGIN)
+reportlab
+# <<< INSERT: SECTION A (END)
+
