@@ -7,3 +7,4 @@ python-multipart>=0.0.9
 reportlab
 # <<< INSERT: SECTION A (END)
 
+stripe
