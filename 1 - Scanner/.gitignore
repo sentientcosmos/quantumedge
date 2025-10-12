@@ -2,3 +2,4 @@
 datasets/*.jsonl
 datasets/*.log
 __pycache__/
+.env

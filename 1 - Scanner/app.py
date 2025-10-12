@@ -1037,74 +1037,94 @@ def create_pdf_report(
 # <<< INSERT: SECTION A (END)
 
 
-# >>> INSERT: SECTION B (BEGIN)
+# >>> INSERT: STRIPE CHECKOUT ENDPOINTS (BEGIN)
 # =======================================
 # STRIPE TEST CHECKOUT (Phase 1.5 revenue)
+# - Uses two prices for Indie: ONE-TIME ($19.99) and SUBSCRIPTION ($9.99/mo)
+# - Lifetime is a one-time ($199)
 # =======================================
-import os
-from fastapi import HTTPException
-from pydantic import BaseModel
 import stripe
 
 # Read Stripe env vars (test mode)
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
-STRIPE_PRICE_INDIE = os.getenv("STRIPE_PRICE_INDIE", "").strip()       # e.g., price_123...
-STRIPE_PRICE_LIFETIME = os.getenv("STRIPE_PRICE_LIFETIME", "").strip() # e.g., price_abc...
+STRIPE_PRICE_INDIE_ONE = os.getenv("STRIPE_PRICE_INDIE_ONE", "").strip()   # one-time $19.99
+STRIPE_PRICE_INDIE_SUB = os.getenv("STRIPE_PRICE_INDIE_SUB", "").strip()   # monthly $9.99
+STRIPE_PRICE_LIFETIME  = os.getenv("STRIPE_PRICE_LIFETIME", "").strip()    # one-time $199
 STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "http://127.0.0.1:8000/pricing").strip()
-STRIPE_CANCEL_URL = os.getenv("STRIPE_CANCEL_URL", "http://127.0.0.1:8000/pricing").strip()
+STRIPE_CANCEL_URL  = os.getenv("STRIPE_CANCEL_URL",  "http://127.0.0.1:8000/pricing").strip()
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
 class CheckoutReq(BaseModel):
-    # Optional: allow overriding quantity or client ref later
+    """Optional quantity for future multi-seat scenarios."""
     quantity: int | None = 1
 
 def _stripe_ready(kind: str) -> tuple[bool, str]:
+    """Ensure required env vars exist for the requested checkout flow."""
     if not STRIPE_SECRET_KEY:
         return False, "Missing STRIPE_SECRET_KEY"
-    if kind == "indie" and not STRIPE_PRICE_INDIE:
-        return False, "Missing STRIPE_PRICE_INDIE"
+    if kind == "indie_one" and not STRIPE_PRICE_INDIE_ONE:
+        return False, "Missing STRIPE_PRICE_INDIE_ONE"
+    if kind == "indie_sub" and not STRIPE_PRICE_INDIE_SUB:
+        return False, "Missing STRIPE_PRICE_INDIE_SUB"
     if kind == "lifetime" and not STRIPE_PRICE_LIFETIME:
         return False, "Missing STRIPE_PRICE_LIFETIME"
     return True, ""
 
-def _create_checkout(price_id: str, quantity: int) -> dict:
-    # Hosted checkout session (test mode)
+def _create_checkout(price_id: str, quantity: int, mode: str = "payment") -> dict:
+    """
+    Create hosted Checkout Session in Stripe Test Mode.
+    - mode='payment'      -> one-time (Indie ONE, Lifetime)
+    - mode='subscription' -> recurring (Indie SUB)
+    """
     session = stripe.checkout.Session.create(
-        mode="payment",
+        mode=mode,
         line_items=[{"price": price_id, "quantity": quantity or 1}],
         success_url=STRIPE_SUCCESS_URL + "?status=success&session_id={CHECKOUT_SESSION_ID}",
         cancel_url=STRIPE_CANCEL_URL + "?status=cancel",
         allow_promotion_codes=True,
     )
-    # minimal telemetry
+    # lightweight telemetry
     try:
-        log_event("stripe_checkout_created", {"price": price_id, "qty": quantity or 1})
+        log_event("stripe_checkout_created", {"price": price_id, "qty": quantity or 1, "mode": mode})
     except Exception:
         pass
     return {"url": session.url}
 
+# Indie ONE-TIME ($19.99)
 @app.post("/buy/indie")
 def buy_indie(body: CheckoutReq | None = None):
-    ok, reason = _stripe_ready("indie")
+    ok, reason = _stripe_ready("indie_one")
     if not ok:
         raise HTTPException(status_code=501, detail=f"Stripe not configured: {reason}")
     try:
-        return _create_checkout(STRIPE_PRICE_INDIE, (body.quantity if body else 1))
+        return _create_checkout(STRIPE_PRICE_INDIE_ONE, (body.quantity if body else 1), mode="payment")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
+# Indie SUBSCRIPTION ($9.99/mo)
+@app.post("/buy/indie-sub")
+def buy_indie_sub(body: CheckoutReq | None = None):
+    ok, reason = _stripe_ready("indie_sub")
+    if not ok:
+        raise HTTPException(status_code=501, detail=f"Stripe not configured: {reason}")
+    try:
+        return _create_checkout(STRIPE_PRICE_INDIE_SUB, (body.quantity if body else 1), mode="subscription")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+
+# Lifetime ONE-TIME ($199)
 @app.post("/buy/lifetime")
 def buy_lifetime(body: CheckoutReq | None = None):
     ok, reason = _stripe_ready("lifetime")
     if not ok:
         raise HTTPException(status_code=501, detail=f"Stripe not configured: {reason}")
     try:
-        return _create_checkout(STRIPE_PRICE_LIFETIME, (body.quantity if body else 1))
+        return _create_checkout(STRIPE_PRICE_LIFETIME, (body.quantity if body else 1), mode="payment")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
-# <<< INSERT: SECTION B (END)
+# <<< INSERT: STRIPE CHECKOUT ENDPOINTS (END)
 
 
 # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
