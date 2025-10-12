@@ -1483,25 +1483,19 @@ def health():
         "time": datetime.utcnow().isoformat() + "Z",
     }
 # ---- Public pricing model (read-only) ----------------------------------------
-@app.get("/pricing")
-def get_pricing():
+# >>> INSERT: SERVE PRICING PAGE (BEGIN)
+@app.get("/pricing", response_class=HTMLResponse)
+async def serve_pricing_page(request: Request):
     """
-    Returns the pricing model the backend is using, plus the resolved Free daily limit.
-    - Source of truth is PRICING_MODEL_CONTEXT.json (already loaded at startup).
-    - Env var FREE_DAILY_LIMIT (if set) overrides the Free tier limit.
-    Safe to expose: it's the same info you want customers to see on the UI.
+    Serve the main index.html when user returns from Stripe.
+    The frontend script reads ?status=success|cancel and shows the banner.
     """
-    # Build a shallow copy so we can include the effective limit without mutating the loaded model.
-    model = {"meta": PRICING_MODEL.get("meta", {}),
-             "tiers": PRICING_MODEL.get("tiers", [])}
-    return {
-        "model": model,
-        "effective": {
-            "free_daily_limit": FREE_DAILY_LIMIT,
-            "version": PRICING_MODEL.get("meta", {}).get("version", "unknown")
-        },
-        "disclaimer": DISCLAIMER
-    }
+    index_path = os.path.join(os.path.dirname(__file__), "index.html")
+    with open(index_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content, status_code=200)
+# <<< INSERT: SERVE PRICING PAGE (END)
+
 
 
 

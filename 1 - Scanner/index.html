@@ -37,6 +37,25 @@
     .notice{margin:12px 0;padding:12px;border-radius:10px}
     .notice.ok{background:#052e1f;border:1px solid #065f46}
     .notice.warn{background:#2d1b1b;border:1px solid #7f1d1d}
+    /* >>> INSERT: SUCCESS/CANCEL BANNER ANIMATION (BEGIN) */
+    /* Slide down from top, stay, then fade away */
+    @keyframes slideFade {
+      0%   { opacity: 0; transform: translateY(-20px); }
+      10%  { opacity: 1; transform: translateY(0); }
+      90%  { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-20px); }
+     }
+     .notice {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      z-index: 1000;
+      animation: slideFade 6s ease-in-out forwards;
+     }
+/* <<< INSERT: SUCCESS/CANCEL BANNER ANIMATION (END) */
+
     /* Plans strip at top of pricing card */
     .chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
     .chips .badge strong{color:#fff;margin-left:4px}
@@ -244,23 +263,37 @@
       el.addEventListener('click', () => startCheckout(endpoint));
     });
 
-    // Success/Cancel banner UX (Stripe redirects back with ?status=...)
-    (function(){
-      const q = new URLSearchParams(window.location.search);
-      const status = q.get('status');
-      if(!status) return;
-      const el = document.getElementById('statusBanner');
-      if(status === 'success'){
-        el.className = 'notice ok';
-        el.textContent = '✅ Payment received. We\'ll email access instructions shortly (Test Mode).';
-      }else if(status === 'cancel'){
-        el.className = 'notice warn';
-        el.textContent = '⚠️ Checkout canceled. You can try again anytime.';
-      }
-      el.style.display = 'block';
-      // optional: clean URL after showing
-      history.replaceState(null,'',window.location.pathname);
-    })();
+    /* >>> INSERT: SUCCESS/CANCEL BANNER UX (BEGIN) */
+      (function(){
+  	const params = new URLSearchParams(window.location.search);
+  	const status = params.get('status');
+  	if (!status) return;
+
+  	const banner = document.getElementById('statusBanner');
+  	if (!banner) return;
+
+  	if (status === 'success') {
+    	 banner.className = 'notice ok';
+    	 banner.textContent = '✅ Payment received — access unlocked (Test Mode).';
+  	} else if (status === 'cancel') {
+    	 banner.className = 'notice warn';
+    	 banner.textContent = '⚠️ Checkout canceled — you can retry anytime.';
+  	} else {
+    	  return;
+  	}
+
+   	 banner.style.display = 'block';
+
+  // Automatically clear the banner after 6 seconds
+  	setTimeout(() => {
+    	banner.style.display = 'none';
+  	}, 6000);
+
+  // Clean URL (remove ?status=...)
+ 	 history.replaceState(null, '', window.location.pathname);
+	})();
+/* <<< INSERT: SUCCESS/CANCEL BANNER UX (END) */
+
 /* ----------------------------------------------
    >>> INSERT: SCAN UI WIRING (BEGIN)  (Scanner)
    Wires the Scan/Try example buttons to the /scan API
