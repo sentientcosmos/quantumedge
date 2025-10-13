@@ -1,344 +1,349 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <!--
-    QubitGrid™ Roadmap — 2025-10-06
-    ---------------------------------------------------------
-    What this file does
-    - Shows a 3-phase roadmap (with an optional Phase 4 backlog).
-    - Pulls daily scan limits live from GET /pricing (the JSON we added).
-    - Mirrors those limits both in the top "Plans & Limits" chips
-      and inside each phase card (so the UI always agrees with backend).
-    - Uses a responsive CSS Grid for clean, horizontal layout.
-
-    How to test (manual smoke)
-    1) Run the app:  uvicorn app:app --reload --port 8000
-    2) Open        :  http://127.0.0.1:8000/roadmap
-    3) Confirm chips match /pricing (Free/Indie/Pro/Team/Enterprise/Lifetime).
-       If /pricing is missing, the chips quietly hide.
-    ---------------------------------------------------------
-    Change log
-    - 2025-10-06: Complete refresh: grid layout, ARIA, live limits,
-      per-card limits, future Phase 4 stub, and consistent badges.
-    ---------------------------------------------------------
-  -->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>QubitGrid™ — Roadmap</title>
 
+  <!-- >>> INSERT: CORE DARK THEME (BEGIN) -->
   <style>
-    /* ========= Design tokens (theme knobs) ========= */
     :root{
-      --bg:#0b1220;          /* page background */
-      --panel:#111827;       /* card background */
-      --fg:#e8eef6;          /* main text */
-      --muted:#9aa7b8;       /* secondary text */
-      --line:#233044;        /* borders */
-      --accent:#0b5bd7;      /* primary buttons/links */
-      --focus:#93c5fd;       /* keyboard focus outline */
-
-      /* chip colors */
-      --chip-ok:#10b981;
-      --chip-warn:#f59e0b;
-      --chip-danger:#ef4444;
-      --chip-team:#2563eb;
-      --chip-enterprise:#6b7280;
-      --chip-indie:#6366f1;
-      --chip-pro:#f59e0b;
+      --bg:#0b1220;--panel:#111827;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;
+      --accent:#0b5bd7;--accent-600:#0a51c2;--focus:#93c5fd;
+      --chip-ok:#10b981;--chip-warn:#f59e0b;--chip-danger:#ef4444;
+      --chip-team:#2563eb;--chip-enterprise:#6b7280;--chip-indie:#6366f1;--chip-pro:#f59e0b;
     }
-
-    /* ========= Base ========= */
     html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
     a{color:#a7c5ff;text-decoration:none}
     a:hover{text-decoration:underline}
-    a:focus{outline:2px solid var(--focus);outline-offset:3px;border-radius:8px}
     .wrap{max-width:1160px;margin:40px auto;padding:0 16px}
-
-    /* ========= Header / Nav ========= */
     .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
     .title{font-size:28px;font-weight:800;line-height:1.2}
-    .tag{display:inline-block;border:1px solid var(--line);background:#0e1626;padding:4px 8px;border-radius:999px;font-size:12px;margin-left:8px}
+    .tag{display:inline-block;border:1px solid var(--line);background:#0e1626;
+      padding:4px 8px;border-radius:999px;font-size:12px;margin-left:8px}
     nav[aria-label]{display:flex;gap:14px}
     nav[aria-label] a{padding:6px 8px;border-radius:8px}
 
-    /* ========= Sections / Cards ========= */
     .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0}
-    .foot{margin-top:6px;font-size:12px;color:var(--muted)}
-
-    /* Grid for phase cards: horizontal across page, then wrap */
     .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start}
-
-    /* ========= Phase blocks ========= */
     .phase h3{margin:2px 0 8px}
-    .pill{display:inline-block;font-size:11px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);background:#0e1626;margin-left:8px}
+    .pill{display:inline-block;font-size:11px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);
+      background:#0e1626;margin-left:8px}
     .ok{color:#6be59b;border-color:#1e824c;background:#0e1b14}
     .todo{color:#b7c3d6;border-color:#3b4556;background:#0e1626}
     .eta{font-size:12px;color:var(--muted);margin:4px 0 8px}
     ul{margin:8px 0 12px 18px}
-
-    /* ========= Buttons ========= */
-    .cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
-    .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--accent);color:#06121f;font-weight:700;text-decoration:none}
-    .btn.ghost{background:#10151b;color:var(--fg)}
-
-    /* ========= Tier badges ========= */
-    .tiers{margin:6px 0 6px}
-    .tier{
-      display:inline-block;padding:4px 8px;margin-right:6px;border-radius:8px;
-      font-size:12px;font-weight:600;color:#eaf2ff;background:#0b5bd7;
-    }
-    .free{background:var(--chip-ok)}
-    .indie{background:var(--chip-indie)}
-    .pro{background:var(--chip-pro)}
-    .team{background:var(--chip-team)}
-    .enterprise{background:var(--chip-enterprise)}
-    .lifetime{background:var(--chip-danger)}
-
-    .quota-pill{
-      display:inline-block;padding:6px 10px;border-radius:999px;
-      background:#111827;border:1px solid var(--line);color:var(--fg);
-      font-size:12px;font-weight:600
-    }
+    .btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid var(--line);
+      background:#10151b;color:var(--fg);font-weight:700;cursor:pointer}
+    .btn:hover{border-color:var(--accent);color:var(--focus)}
+    .btn-primary{background:var(--accent);color:#06121f;border-color:var(--accent)}
+    .btn-primary:hover{background:var(--accent-600);border-color:var(--accent-600)}
+    .btn-small{padding:8px 12px;font-size:.9rem}
+    .tier{display:inline-block;padding:4px 8px;margin-right:6px;border-radius:8px;
+      font-size:12px;font-weight:600;color:#eaf2ff}
+    .free{background:var(--chip-ok)}.indie{background:var(--chip-indie)}.pro{background:var(--chip-pro)}
+    .team{background:var(--chip-team)}.enterprise{background:var(--chip-enterprise)}.lifetime{background:var(--chip-danger)}
+    .quota-pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#111827;border:1px solid var(--line);
+      color:var(--fg);font-size:12px;font-weight:600}
+    /* Modal overlay + blur */
+    .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;
+      background:rgba(11,18,32,0.75);backdrop-filter:blur(6px);display:none;
+      align-items:center;justify-content:center;z-index:1000;animation:fadeIn .3s ease forwards;}
+    .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:420px;width:90%;}
+    .modal h3{margin-top:0;margin-bottom:10px}
+    .modal form{display:flex;flex-direction:column;gap:10px}
+    .modal input,.modal textarea{border:1px solid var(--line);border-radius:8px;
+      background:#0b1320;color:var(--fg);padding:8px 10px;font-size:14px}
+    .modal button{margin-top:6px}
+    .success-msg{display:none;text-align:center;color:#6be59b;margin-top:10px}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   </style>
+  <!-- <<< INSERT: CORE DARK THEME (END) -->
 </head>
 
 <body>
   <div class="wrap">
-    <!-- Header -->
+    <!-- >>> HEADER (BEGIN) -->
     <header class="head">
-      <div class="title">
-        QubitGrid™ Roadmap
-        <span class="tag" aria-label="Live progress status">Live&nbsp;Progress</span>
-      </div>
-      <!-- Accessible primary nav (you can link these to your routes) -->
+      <div class="title">QubitGrid™ Roadmap<span class="tag">Live Progress</span></div>
       <nav aria-label="Primary">
         <a href="/">Home</a>
         <a href="/roadmap" aria-current="page">Roadmap</a>
-        <a href="/#pricingWrap">Pricing</a>
+        <a href="/pricing">Pricing</a>
       </nav>
     </header>
+    <!-- <<< HEADER (END) -->
 
-    <!-- Intro / What to expect -->
-    <section class="card" role="region" aria-labelledby="intro-title">
-      <h2 id="intro-title" style="margin:0 0 8px;font-size:18px;">What to expect</h2>
-      <p style="margin:0">
-        This is a living roadmap. Phase&nbsp;1 is live today. Upcoming releases add intelligence,
-        transparency, and compliance strength. Lifetime buyers receive every feature in the Pro tier.
-      </p>
+    <!-- >>> INTRO (BEGIN) -->
+    <section class="card">
+      <h2 style="margin:0 0 8px;font-size:18px;">What to Expect</h2>
+      <p style="margin:0">This roadmap evolves with every release. Phase 1 is live today; later phases bring
+         hybrid intelligence, compliance automation, and enterprise readiness.</p>
     </section>
+    <!-- <<< INTRO (END) -->
 
-    <!-- Plans & Limits (auto-filled from /pricing) -->
-    <h2 id="pricingWrap" style="font-size:20px;margin:10px 0 6px">Plans &amp; Limits</h2>
-    <section class="card" style="padding:14px" aria-describedby="plans-note">
-      <!-- Top chips: filled by JS from GET /pricing -->
-      <div id="tierLimits" style="display:none;gap:8px;flex-wrap:wrap"></div>
-      <p id="plans-note" class="foot">
-         “Custom” denotes negotiated limits.
-      </p>
-    </section>
+    <!-- >>> INSERT: PLANS & LIMITS CARD (ENHANCED BEGIN) -->
+<h2 style="font-size:20px;margin:10px 0 6px">Plans &amp; Limits</h2>
+<section class="card" style="padding:14px">
+  <!-- top row chips injected dynamically -->
+  <div id="tierLimits" style="display:none;gap:8px;flex-wrap:wrap;align-items:center"></div>
 
-    <!-- Roadmap phases -->
-    <section class="grid" role="list" aria-label="Roadmap phases">
+  <!-- info note and fair-use tag -->
+  <p class="foot" style="font-size:12px;color:var(--muted);margin-top:6px">
+    “Custom” = negotiated limits • <span title="One scan equals a single prompt analysis through the API.">ℹ️ A scan = one prompt evaluation</span><br/>
+    Fair-use policy applies to Lifetime (unlimited) plans, it's designed for individual or small-team use; large-scale automated operations may require Enterprise.
+  </p>
+
+  <!-- compare-tiers link -->
+  <p style="margin:8px 0 0;font-size:13px;">
+    <a href="/pricing" style="color:var(--accent);font-weight:600">Compare all tiers →</a>
+  </p>
+
+  <!-- optional progress indicator (kept commented for later) -->
+  <!-- <div class="progress" style="height:6px;background:#1b2233;border-radius:4px;margin-top:8px">
+       <div style="width:25%;background:var(--accent);height:6px;border-radius:4px"></div></div> -->
+</section>
+<!-- <<< INSERT: PLANS & LIMITS CARD (ENHANCED END) -->
+
+
+    <!-- >>> ROADMAP PHASES (BEGIN) -->
+    <section class="grid">
       <!-- PHASE 1 -->
-      <article class="card phase" role="listitem" aria-labelledby="p1-title">
-        <h3 id="p1-title">
-          Phase 1 — Guardrails Launch <span class="muted">(Live Proof of Concept)</span>
-          <span class="pill ok">DONE</span>
-        </h3>
+       <!-- >>> INSERT: PHASE UPDATES — PHASE 1 (BEGIN) -->
+<article class="card phase">
+  <h3>Phase 1 — Guardrails Launch <span class="pill ok">DONE</span></h3>
+  <div><span class="tier free">Free</span> <span class="tier indie">Indie</span></div>
+  <div class="eta"><span class="js-limit" data-tier="Free">Free: …</span> • <span class="js-limit" data-tier="Indie">Indie: …</span></div>
 
-        <div class="tiers" aria-label="Tiers served in this phase">
-          <span class="tier free">Free</span>
-          <span class="tier indie">Indie</span>
-        </div>
+  <!-- Headline USP (short + tooltip explains depth) -->
+  <ul>
+    <li title="Continuously expanding detection engine combining pattern matching, semantic context, and threat-intelligence scoring.">
+      <strong>Adaptive rule engine with real-time threat scoring</strong>
+    </li>
+    <li>Slack/Discord alerts on high-severity findings</li>
+    <li>Latency & telemetry for performance insight</li>
+  </ul>
 
-        <!-- Per-card limits mirror /pricing (filled by JS) -->
-        <div class="eta">
-          <span class="js-limit" data-tier="Free">Free: …</span>
-          &nbsp;•&nbsp;
-          <span class="js-limit" data-tier="Indie">Indie: …</span>
-        </div>
+  <!-- Extra value line (Phase 1 PDF = watermark) -->
+  <p class="muted" style="margin:6px 0 0 0">
+    Includes auto-generated, <em>watermark-protected</em> PDF reports for compliance documentation.
+  </p>
 
-        <p>
-          The Prompt Injection Scanner is live. Developers can test prompts for risk,
-          view real-time severity flags, and integrate Slack/Discord alerts. This powers Free and
-          Indie tiers. Fast onboarding and transparent results.
-        </p>
+  <div class="cta">
+    <button class="btn btn-small" onclick="window.location.href='/'">Try Scanner</button>
+    <button class="btn btn-small" data-checkout="lifetime" type="button">Limited-Time Lifetime</button>
+  </div>
+</article>
+<!-- <<< INSERT: PHASE UPDATES — PHASE 1 (END) -->
 
-        <ul>
-          <li>Prompt Injection Scanner (web + API)</li>
-          <li>Rule engine (50+ categories) with severity tagging</li>
-          <li>Slack alerts for high-severity detections</li>
-          <li>Head/Tail scanning for large inputs; latency telemetry</li>
-          <li>Aggregate duplicate flags (<code>match_count</code>) for clean results</li>
-        </ul>
 
-        <div class="cta" role="group" aria-label="Phase 1 actions">
-          <a class="btn" href="/">Try the Scanner</a>
-          <a class="btn ghost" href="#lifetime">Limited-Time Lifetime Access</a>
-        </div>
-      </article>
 
       <!-- PHASE 2 -->
-      <article class="card phase" role="listitem" aria-labelledby="p2-title">
-        <h3 id="p2-title">
-          Phase 2 — Hybrid Intelligence
-          <span class="pill todo">IN&nbsp;PROGRESS</span>
-        </h3>
-        <div class="eta">Target: Dec&nbsp;2025</div>
+ 	<!-- >>> INSERT: PHASE UPDATES — PHASE 2 (BEGIN) -->
+<article class="card phase">
+  <h3>Phase 2 — Hybrid Intelligence <span class="pill todo">IN PROGRESS</span></h3>
+  <div><span class="tier pro">Pro</span> <span class="tier indie">Indie</span> <span class="tier lifetime">Lifetime</span></div>
+  <div class="eta"><span class="js-limit" data-tier="Pro">Pro: …</span> • <span class="js-limit" data-tier="Indie">Indie: …</span> • <span class="js-limit" data-tier="Lifetime">Lifetime: …</span></div>
 
-        <div class="tiers" aria-label="Tiers served in this phase">
-          <span class="tier pro">Pro</span>
-          <span class="tier indie">Indie</span>
-          <span class="tier lifetime">Lifetime</span>
-        </div>
+  <ul>
+    <!-- Data-centric phrasing + tooltip -->
+    <li title="Models tuned on known prompt-abuse patterns and evolving incident data; curated rules provide precision, ML adds adaptability.">
+      <strong>Hybrid AI detection: curated threat patterns + data-driven models</strong>
+    </li>
+    <li>Analytics dashboard (severity trends, rule hit rates)</li>
+    <li>Batch export with <strong>audit-ready PDF (no watermark)</strong></li>
+  </ul>
 
-        <!-- Per-card limits mirror /pricing (filled by JS) -->
-        <div class="eta">
-          <span class="js-limit" data-tier="Pro">Pro: …</span>
-          &nbsp;•&nbsp;
-          <span class="js-limit" data-tier="Indie">Indie: …</span>
-          &nbsp;•&nbsp;
-          <span class="js-limit" data-tier="Lifetime">Lifetime: …</span>
-        </div>
+  <p class="muted" style="margin:6px 0 0 0">
+    Early adaptive learning continually improves detection accuracy over time.
+  </p>
 
-        <ul>
-          <li>ML classifier trained on continuously updated real-world security &amp; compliance datasets (rules + ML hybrid)</li>
-          <li>📄 Batch scanning endpoint with <strong>PDF report export</strong> (compliance-ready summaries)</li>
-          <li>Secure checkout for Indie Plan and Lifetime Access tiers</li>
-          <li>Usage analytics page (severity breakdowns &amp; trends)</li>
-        </ul>
+  <div class="cta">
+    <button class="btn btn-primary" data-checkout="indie" type="button">Indie Plan (Early)</button>
+    <button class="btn btn-small" onclick="window.location.href='/__version'">API Docs</button>
+  </div>
+</article>
+<!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
 
-        <div class="cta" role="group" aria-label="Phase 2 actions">
-          <a class="btn" id="buyIndie" href="/buy/indie">Indie Plan (Early)</a>
-          <a class="btn ghost" href="/docs">API Docs</a>
-        </div>
-      </article>
+<!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
+
 
       <!-- PHASE 3 -->
-      <article class="card phase" role="listitem" aria-labelledby="p3-title">
-        <h3 id="p3-title">
-          Phase 3 — Enterprise Compliance Intelligence
-          <span class="pill todo">PLANNED</span>
-        </h3>
-        <div class="eta">Target: Q2&nbsp;2026</div>
+      <!-- >>> INSERT: PHASE UPDATES — PHASE 3 (BEGIN) -->
+<article class="card phase">
+  <h3>Phase 3 — Enterprise Compliance Intelligence <span class="pill todo">PLANNED</span></h3>
+  <div><span class="tier team">Team</span> <span class="tier enterprise">Enterprise</span></div>
+  <div class="eta"><span class="js-limit" data-tier="Team">Team: …</span> • <span class="js-limit" data-tier="Enterprise">Enterprise: …</span></div>
 
-        <div class="tiers" aria-label="Tiers served in this phase">
-          <span class="tier team">Team</span>
-          <span class="tier enterprise">Enterprise</span>
-        </div>
+  <ul>
+    <li title="Enterprise-grade modules for privacy, audit logging, and post-quantum cryptography policy validation.">
+      <strong>Unified compliance suite for privacy, audit, and PQC readiness</strong>
+    </li>
+    <li>Privacy Redactor (PII masking pre-LLM)</li>
+    <li>Audit Logger (verifiable evidence trails)</li>
+    <li>PQC TLS Checker + SSO & data residency controls</li>
+  </ul>
 
-        <!-- Per-card limits mirror /pricing (filled by JS) -->
-        <div class="eta">
-          <span class="js-limit" data-tier="Team">Team: …</span>
-          &nbsp;•&nbsp;
-          <span class="js-limit" data-tier="Enterprise">Enterprise: …</span>
-        </div>
+  <!-- Clean single italic line per your preference -->
+  <p class="muted" style="margin:6px 0 0 0"><em>
+    Available as a bundled suite in Enterprise; individual modules offered as Pro add-ons.
+  </em></p>
 
-        <ul>
-          <li>Privacy Redactor (PII masking pre-LLM) — protects sensitive data before model input</li>
-          <li>Audit Logger (verifiable trace for regulators and internal governance)</li>
-          <li>PQC TLS Checker (post-quantum cryptography readiness)</li>
-          <li>Unified Platform UI (shared auth, billing, analytics — enterprise-grade compliance hub)</li>
-        </ul>
+  <div class="cta">
+    <button class="btn btn-primary btn-small" data-modal="sales">Contact Sales</button>
+  </div>
+</article>
+<!-- <<< INSERT: PHASE UPDATES — PHASE 3 (END) -->
 
-        <div class="cta" role="group" aria-label="Phase 3 actions">
-          <a class="btn ghost" id="contactSales" href="/contact">Contact Sales</a>
-        </div>
-      </article>
-
-      <!-- PHASE 4 (Backlog stub; safe to ignore for now) -->
-      <article class="card phase" role="listitem" aria-labelledby="p4-title">
-        <h3 id="p4-title">
-          Phase 4 — Automation & Marketplace
-          <span class="pill todo" title="Backlog">BACKLOG</span>
-        </h3>
-        <div class="eta">Target: TBA</div>
-
-        <div class="tiers" aria-label="Tiers served in this phase">
-          <span class="tier pro">Pro</span>
-          <span class="tier team">Team</span>
-          <span class="tier enterprise">Enterprise</span>
-        </div>
-
-        <div class="eta">
-          <span class="js-limit" data-tier="Pro">Pro: …</span>
-          &nbsp;•&nbsp;<span class="js-limit" data-tier="Team">Team: …</span>
-          &nbsp;•&nbsp;<span class="js-limit" data-tier="Enterprise">Enterprise: …</span>
-        </div>
-
-        <ul>
-          <li>Webhook action recipes (auto-remediate on high severity)</li>
-          <li>Policy packs (OWASP LLM, sector-specific templates)</li>
-          <li>Partner connectors (SIEM/SOAR exports)</li>
-        </ul>
-
-        <div class="cta" role="group" aria-label="Phase 4 actions">
-          <a class="btn ghost" href="/contact">Partner with us</a>
-        </div>
-      </article>
     </section>
+    <!-- <<< ROADMAP PHASES (END) -->
 
-    <!-- Lifetime CTA -->
-    <section id="lifetime" class="card" aria-labelledby="lifetime-title">
-      <h3 id="lifetime-title">Limited-Time Lifetime Access</h3>
-      <p>
-        Permanent access to the QubitGrid™ Guardrails Launch (Prompt Injection Scanner), plus a
-        <strong>20% discount</strong> on all upcoming QubitGrid™ products. One-time payment,
-        no subscriptions. Offer available for a limited time to our earliest adopters.
-      </p>
+    <!-- >>> LIFETIME CTA (BEGIN) -->
+    <section id="lifetime" class="card">
+      <h3>Limited-Time Lifetime Access</h3>
+      <p>Permanent access to all Pro features as they ship. One-time payment $199.</p>
       <div class="cta">
-        <a class="btn" id="buyLifetime" href="/buy/lifetime">Get Lifetime</a>
-        <a class="btn ghost" href="/buy/indie">Indie Plan (2000 scans/day)</a>
+        <button class="btn btn-primary" data-checkout="lifetime" type="button">Get Lifetime ($199)</button>
+        <button class="btn" data-checkout="indie" type="button">Indie Plan ($19.99)</button>
       </div>
     </section>
+    <!-- <<< LIFETIME CTA (END) -->
 
-    <footer class="foot" role="contentinfo" style="margin-top:16px">
-      Questions? <a href="/feedback">Send feedback in-app</a> or email <a href="mailto:hello@qubitgrid.ai">hello@qubitgrid.ai</a>.<br/>
+    <footer style="font-size:12px;color:var(--muted);margin-top:18px">
       QubitGrid™ provides pre-audit readiness tools only; not a certified audit.
     </footer>
   </div>
 
-  <!-- ========= Live limits from /pricing =========
-       - If /pricing returns the model we ingested, we populate:
-         (1) the top chip row, and (2) every .js-limit span in cards.
-       - Safe fail: if /pricing is absent, chips stay hidden and cards show “…” .
-  -->
+  <!-- >>> MODALS (BEGIN) -->
+  <!-- CONTACT SALES MODAL -->
+  <div id="modal-sales" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="salesTitle">
+    <div class="modal">
+      <h3 id="salesTitle">Contact Sales</h3>
+      <form id="form-sales">
+        <input type="text" name="name" placeholder="Your name" required />
+        <input type="email" name="email" placeholder="Your email" required />
+        <textarea name="message" placeholder="Tell us about your needs" rows="4"></textarea>
+        <button type="submit" class="btn btn-primary">Send</button>
+        <button type="button" class="btn btn-small" data-close>Close</button>
+      </form>
+      <div class="success-msg" id="sales-success">✅ Message received — thank you!</div>
+    </div>
+  </div>
+
+  <!-- PARTNER WITH US MODAL -->
+  <div id="modal-partner" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="partnerTitle">
+    <div class="modal">
+      <h3 id="partnerTitle">Partner with QubitGrid™</h3>
+      <form id="form-partner">
+        <input type="text" name="name" placeholder="Your name" required />
+        <input type="email" name="email" placeholder="Your email" required />
+        <textarea name="message" placeholder="Describe your partnership idea" rows="4"></textarea>
+        <button type="submit" class="btn btn-primary">Send</button>
+        <button type="button" class="btn btn-small" data-close>Close</button>
+      </form>
+      <div class="success-msg" id="partner-success">✅ Message received — thank you!</div>
+    </div>
+  </div>
+  <!-- <<< MODALS (END) -->
+
+  <!-- >>> SCRIPTS SECTION (BEGIN) -->
   <script>
+  /* ============================================================
+     FETCH LIVE LIMITS FROM /pricing (auto-updates chips)
+     ============================================================ */
   (function(){
-    const topRow = document.getElementById('tierLimits');
-    function chip(label, value){
-      return `<span class="quota-pill" role="status" aria-live="polite">${label}: ${value}</span>`;
-    }
+    const topRow=document.getElementById('tierLimits');
+    function chip(label,val){return `<span class="quota-pill">${label}: ${val}</span>`;}
     fetch('/pricing')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if(!data || !data.model || !Array.isArray(data.model.tiers)) return;
-
-        const limits = {};
+      .then(r=>r.ok?r.json():null)
+      .then(data=>{
+        if(!data||!data.model||!Array.isArray(data.model.tiers))return;
+        const limits={};
         for(const t of data.model.tiers){
-          const name = String(t.name||'').trim().toLowerCase();
-          const lim  = t.scan_limit_per_day;
-          let txt = '—';
-          if (typeof lim === 'number') txt = lim.toLocaleString() + '/day';
-          else if (typeof lim === 'string') txt = lim;           // e.g., "Custom"
-          limits[name] = txt;
+          const name=String(t.name||'').trim().toLowerCase();
+          const lim=t.scan_limit_per_day;
+          limits[name]=typeof lim==='number'?lim.toLocaleString()+'/day':lim;
         }
-
-        // (1) Top chips in this order:
-        const order = ['Free','Indie','Pro','Team','Enterprise','Lifetime'];
-        topRow.style.display = 'flex';
-        topRow.innerHTML = order.map(n => chip(n, limits[n.toLowerCase()] ?? '—')).join(' ');
-
-        // (2) Per-card inline spans:
-        document.querySelectorAll('.js-limit[data-tier]').forEach(el => {
-          const tier = String(el.getAttribute('data-tier')||'').toLowerCase();
-          const val  = limits[tier] ?? '—';
-          el.textContent = `${el.getAttribute('data-tier')}: ${val}`;
+        const order=['Free','Indie','Pro','Team','Enterprise','Lifetime'];
+        topRow.style.display='flex';
+        topRow.innerHTML=order.map(n=>chip(n,limits[n.toLowerCase()]||'—')).join(' ');
+        document.querySelectorAll('.js-limit[data-tier]').forEach(el=>{
+          const tier=(el.getAttribute('data-tier')||'').toLowerCase();
+          el.textContent=`${el.getAttribute('data-tier')}: ${limits[tier]||'—'}`;
         });
-      })
-      .catch(()=>{/* no-op; keep page usable */});
+      }).catch(()=>{});
   })();
+
+  /* ============================================================
+     STRIPE FRONTEND REDIRECTS
+     ============================================================ */
+  async function startCheckout(endpoint){
+    const btn=document.activeElement;
+    try{
+      if(btn&&btn.tagName==='BUTTON')btn.disabled=true;
+      const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+      if(!res.ok){
+        const err=await res.json().catch(()=>({}));
+        alert(err?.detail||`Checkout failed (${res.status})`);
+        if(btn)btn.disabled=false;return;
+      }
+      const data=await res.json();
+      if(!data?.url){alert('Checkout failed: no URL returned.');if(btn)btn.disabled=false;return;}
+      window.location.href=data.url;
+    }catch(e){
+      alert('Network error starting checkout. Please try again.');
+      if(btn)btn.disabled=false;
+    }
+  }
+  // attach to all buttons with data-checkout
+  document.querySelectorAll('[data-checkout]').forEach(el=>{
+    const plan=el.getAttribute('data-checkout');
+    const endpoint=plan==='indie'?'/buy/indie':'/buy/lifetime';
+    el.addEventListener('click',()=>startCheckout(endpoint));
+  });
+
+  /* ============================================================
+     MODAL LOGIC (Contact Sales & Partner With Us)
+     ============================================================ */
+  const modals=document.querySelectorAll('.modal-overlay');
+  const openers=document.querySelectorAll('[data-modal]');
+  const closeBtns=document.querySelectorAll('[data-close]');
+
+  // open modal
+  openers.forEach(btn=>{
+    const id=btn.getAttribute('data-modal');
+    btn.addEventListener('click',()=>{
+      document.getElementById(`modal-${id}`).style.display='flex';
+    });
+  });
+  // close modal
+  closeBtns.forEach(btn=>{
+    btn.addEventListener('click',()=>btn.closest('.modal-overlay').style.display='none');
+  });
+  // close on Esc
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape')modals.forEach(m=>m.style.display='none');
+  });
+
+  /* --- Form submissions (POST /feedback, fade out after 6 s) --- */
+  async function sendForm(formId,successId){
+    const form=document.getElementById(formId);
+    const success=document.getElementById(successId);
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const data=Object.fromEntries(new FormData(form));
+      try{
+        await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+        success.style.display='block';
+        setTimeout(()=>{success.style.display='none';form.closest('.modal-overlay').style.display='none';form.reset();},6000);
+      }catch{alert('Network error — please try again later.');}
+    });
+  }
+  sendForm('form-sales','sales-success');
+  sendForm('form-partner','partner-success');
+  /* ============================================================ */
   </script>
-  <!-- End of file — 2025-10-06 -->
+  <!-- <<< SCRIPTS SECTION (END) -->
 </body>
 </html>
+
