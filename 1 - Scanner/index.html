@@ -428,6 +428,18 @@ document.querySelectorAll('[data-checkout]').forEach(el=>{
   if(endpoint) el.addEventListener('click',()=>startCheckout(endpoint));
 });
 
+// ================================
+// Stripe return banner handler
+// ================================
+window.addEventListener("DOMContentLoaded", () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("success")) {
+    showBanner("Payment successful ✔️", true);
+  } else if (params.has("canceled")) {
+    showBanner("Payment canceled ❌", false);
+  }
+});
+
     </script>
   </body>
 </html>
