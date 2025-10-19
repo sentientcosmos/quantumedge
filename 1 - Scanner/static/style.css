@@ -1,0 +1,380 @@
+/* >>> QubitGrid™ Style System (BEGIN)
+-----------------------------------------------------
+Modern dark aesthetic: two-column layout, soft depth,
+blurred modals, smooth interactions, responsive grid.
+----------------------------------------------------- */
+
+/* ============= Root Theme Variables ============= */
+:root {
+  --bg: #0d1117;          /* overall page background */
+  --card: #151a24;        /* card background */
+  --text: #e5e7eb;        /* primary text color */
+  --muted: #9ca3af;       /* secondary text */
+  --accent: #3b82f6;      /* primary brand blue */
+  --success: #10b981;     /* success (green) */
+  --error: #ef4444;       /* error (red) */
+  --border: rgba(255,255,255,0.08);
+}
+
+/* ============= Global Reset ============= */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ============= Cards & Containers ============= */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  margin: 16px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Layout wrapper: two-column grid */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 auto;
+  max-width: 1100px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 2fr 1fr; /* main + sidebar */
+  gap: 12px;
+}
+
+@media (max-width: 800px) {
+  .row {
+    grid-template-columns: 1fr; /* stacks on mobile */
+  }
+}
+
+/* ============= Header / Nav ============= */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(21, 26, 36, 0.8);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+nav a {
+  color: var(--accent);
+  margin-left: 16px;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+nav a:hover {
+  color: var(--text);
+}
+
+/* ============= Typography Helpers ============= */
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* ============= Buttons ============= */
+button,
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-accent:hover {
+  background: #2563eb;
+}
+
+.btn-small {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.btn-small:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ============= Inputs & Textareas ============= */
+textarea,
+input {
+  width: 100%;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+textarea:focus,
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ============= Results Box ============= */
+.dashed {
+  border: 1px dashed var(--border);
+  padding: 10px;
+  border-radius: 8px;
+  min-height: 40px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* ============= Sidebar ============= */
+.hero-aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ============= Modals ============= */
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.modal.hidden {
+  display: none;
+  opacity: 0;
+}
+
+.modal-content {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  width: 350px;
+  box-shadow: 0 0 25px rgba(0, 0, 0, 0.5);
+  animation: modalFade 0.25s ease;
+}
+
+@keyframes modalFade {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Close icon */
+.modal-content::before {
+  content: "×";
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+/* ============= Banner ============= */
+.banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding: 12px;
+  text-align: center;
+  color: #fff;
+  font-weight: 600;
+  z-index: 9999;
+}
+
+.banner.success {
+  background: var(--success);
+}
+
+.banner.error {
+  background: var(--error);
+}
+
+/* ============= Footer ============= */
+footer {
+  text-align: center;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+}
+/* >>> Pricing & Upgrades Styling (BEGIN) */
+.pricing-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.plan-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  transition: all 0.2s ease;
+}
+
+.plan-card h5 {
+  margin-bottom: 6px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.plan-card .price {
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.plan-card .price span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.plan-card ul {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 6px 0 12px 12px;
+  line-height: 1.5;
+}
+
+.plan-card button {
+  width: 100%;
+}
+
+/* Hover glow per tier */
+.plan-card.indie:hover { border-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.3); }
+.plan-card.pro:hover { border-color: #8b5cf6; box-shadow: 0 0 10px rgba(139,92,246,0.3); }
+.plan-card.lifetime:hover { border-color: #fbbf24; box-shadow: 0 0 10px rgba(251,191,36,0.3); }
+/* <<< Pricing & Upgrades Styling (END) */
+/* >>> Enhanced Scan Results Styling (BEGIN) */
+.results-section {
+  background: #121826;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+  animation: fadeInUp 0.4s ease;
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.severity-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: white;
+  background-color: #2563eb; /* default blue */
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.5rem;
+}
+
+.result-summary {
+  font-size: 0.9rem;
+  color: #d1d5db;
+}
+
+.result-details summary {
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.result-details pre {
+  background-color: #0b101a;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  color: #d1d5db;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.scan-log {
+  margin-top: 1rem;
+  border-top: 1px solid #1e293b;
+  padding-top: 0.5rem;
+}
+
+.scan-log h4 {
+  font-size: 0.85rem;
+  color: #9ca3af;
+  margin-bottom: 0.25rem;
+}
+
+.scan-log li {
+  font-size: 0.8rem;
+  margin: 0.15rem 0;
+  color: #d1d5db;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* <<< Enhanced Scan Results Styling (END) */
+
+/* <<< QubitGrid™ Style System (END) */

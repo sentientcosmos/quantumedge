@@ -18,21 +18,6 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter  # used to count severities & plans
 from datetime import timedelta   # used to compute the N-day window
-# --- Load environment from .env/ENV for local dev ----------------------------
-# Why: when running locally, Stripe keys (and other settings) live in files.
-# In prod (e.g., Render), you set them in the dashboard and this is harmless.
-from pathlib import Path
-try:
-    from dotenv import load_dotenv  # pip install python-dotenv
-    _BASE_DIR = Path(__file__).parent
-    # Load .env if present (common convention)
-    load_dotenv(_BASE_DIR / ".env", override=False)
-    # Also load ENV (your file name) if present; does NOT overwrite already-loaded values
-    load_dotenv(_BASE_DIR / "ENV", override=False)
-except Exception as e:
-    # Don't break the app if python-dotenv is not installed
-    print("[dotenv] skip loading .env/ENV:", e)
-# ---------------------------------------------------------------------------
 
 
 # ------------------------------
@@ -86,14 +71,44 @@ def _client_token(request: Request) -> tuple[str, str, str]:
     token = f"{ip}|{ua_hash}"
     return token, ip, ua_hash
 
+# >>> INSERT: RATE-LIMIT HELPERS + ENFORCER (BEGIN)
+def _rate_limit_meta(request: Request) -> dict:
+    """
+    Purpose
+    -------
+    Compute current free-tier quota for the anonymous bucket (IP + UA hash).
+    Returns a small dict so we can expose standard headers to the client.
+
+    Why this matters
+    ----------------
+    The UI can show `Free scans left: N/15 (resets YYYY-MM-DD)`, which reduces confusion
+    and nudges upgrades once the cap is hit.
+    """
+    token, _, _ = _client_token(request)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    entry = _RATE_LIMIT_BUCKET.get(token) or {"date": today, "count": 0}
+    remaining = max(0, FREE_DAILY_LIMIT - (entry["count"] if entry.get("date") == today else 0))
+    return {
+        "limit": FREE_DAILY_LIMIT,
+        "remaining": remaining,
+        "reset_utc_date": (datetime.utcnow().date() + timedelta(days=1)).isoformat(),
+    }
+
+
 def _rate_limit_check_and_increment(request: Request) -> dict | None:
     """
-    Enforce the FREE_DAILY_LIMIT for anonymous users.
-    - If a valid API key is present (Authorization: Bearer <API_KEY>), we SKIP the limit.
-    - Otherwise we count this request against today's bucket for (IP+UA).
-    Returns None if allowed; returns a dict payload if blocked (429).
+    Purpose
+    -------
+    Enforce the anonymous FREE_TIER daily cap for GET /scan.
+
+    Behavior
+    --------
+    - If an API key is supplied (paid user), we SKIP limits.
+    - Otherwise, we bucket by (IP + hashed User-Agent) per UTC day.
+    - If over limit, we return a JSON payload that the caller can send with 429.
+    - If under limit, we increment the counter and return None (meaning: allowed).
     """
-    # Bypass for paid/API-key users (simple starter policy)
+    # Bypass for paid/API-key users
     if API_KEY and (request.headers.get("authorization", "") == f"Bearer {API_KEY}"):
         return None
 
@@ -102,13 +117,11 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
 
     entry = _RATE_LIMIT_BUCKET.get(token)
     if not entry or entry.get("date") != today:
-        # First request today (or day rolled over) -> reset counter
         entry = {"date": today, "count": 0}
         _RATE_LIMIT_BUCKET[token] = entry
 
-    # If already at/over limit -> block
     if entry["count"] >= FREE_DAILY_LIMIT:
-        # Optional: log the event (goes to your in-memory analytics buffer too)
+        # Log a non-fatal analytics event
         try:
             log_event("rate_limited", {
                 "ip_masked": _mask_ip(ip),
@@ -119,16 +132,14 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
         except Exception:
             pass
 
-        # Compute a simple reset hint (next midnight UTC)
-        tomorrow = (datetime.utcnow().date() + timedelta(days=1)).isoformat()
         return {
             "error": "Free tier daily limit reached.",
             "limit": FREE_DAILY_LIMIT,
-            "reset_utc_date": tomorrow,
-            "upgrade": "/roadmap"
+            "reset_utc_date": (datetime.utcnow().date() + timedelta(days=1)).isoformat(),
+            "upgrade": "/roadmap",
         }
 
-    # Otherwise consume one unit and allow
+    # Allowed — consume one unit
     entry["count"] += 1
     try:
         log_event("rate_limit_increment", {
@@ -140,6 +151,7 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
     except Exception:
         pass
     return None
+# <<< INSERT: RATE-LIMIT HELPERS + ENFORCER (END)
 
 # ---------------------------------------------------------------------
 # In-memory telemetry ring buffer (keeps recent events; survives process lifetime)
@@ -626,101 +638,107 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 # - Input: query param ?text=...
 # - Output: JSON with flagged (bool), severity, flags[], disclaimer
 # =============================================================================
+
 @app.get("/scan")
 def scan(
-	request: Request,                                 # <-- add this
-	text: str = Query(..., description="Text to scan for prompt injection")):
-    """
-    Single-text scan endpoint. All logic must be indented inside this function.
-    We:
-      1. Measure start time
-      2. Run compiled regex scanner
-      3. Compute latency in ms and log telemetry
-      4. Attempt Slack alert (best-effort)
-      5. Return structured JSONResponse
-    """
-   # ---------- FREE TIER RATE LIMIT (anonymous) ----------
-    rl = _rate_limit_check_and_increment(request)
-    if rl is not None:
-        # Blocked: return a 429 with clear upgrade path.
-        return JSONResponse(rl, status_code=429)
-    # ------------------------------------------------------
+    request: Request,
+    text: str = Query(..., description="Text to scan for prompt injection"),
+):
     """
     Single-text scan endpoint.
+    Performs rate limiting, input truncation, rule scanning, telemetry, and alerting.
+    Everything below is indented exactly 4 spaces to be inside this function.
     """
+
+    # ---------- FREE TIER RATE LIMIT (anonymous) ----------
+    rl = _rate_limit_check_and_increment(request)
+    if rl is not None:
+        meta = _rate_limit_meta(request)
+        return JSONResponse(
+            rl,
+            status_code=429,
+            headers={
+                "X-RateLimit-Limit": str(meta["limit"]),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": meta["reset_utc_date"],
+            },
+        )
+
     # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
-    # Configure via env; default total slice = 50k chars (35k head + 15k tail)
-    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
-    HEAD_RATIO = 0.7                                               # 70% head, 30% tail
+    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))  # total slice size
+    HEAD_RATIO = 0.7  # 70% head, 30% tail
 
     txt = text or ""
     orig_len = len(txt)
     truncated = False
 
     if orig_len > MAX_INPUT_CHARS:
-        # Compute head/tail sizes
         head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
         tail_n = MAX_INPUT_CHARS - head_n
-
         head = txt[:head_n]
         tail = txt[-tail_n:] if tail_n > 0 else ""
-
-        # Join with a visible marker so UX and logs show truncation
         text = head + "\n...[TRUNCATED]...\n" + tail
         truncated = True
     else:
-        # keep as-is
         text = txt
     # ---------- END INPUT SIZE POLICY ----------
 
-    # 1) Start timer for latency (ms)
+    # ---------- 1) Start timer for latency (ms) ----------
     start = time.time()
 
-    # 2) Run the rule scanner (compiled at startup)
+    # ---------- 2) Run the rule scanner (compiled at startup) ----------
     flags, severity = scan_text_rules(text)
 
     # Collapse duplicates and trim snippets for cleaner UX
     raw_flags = flags
     flags = aggregate_flags(raw_flags)
 
-
-
-    # 3) Compute latency and include it in telemetry
+    # ---------- 3) Compute latency and include it in telemetry ----------
     latency_ms = int((time.time() - start) * 1000)
 
     try:
-        log_event("scan_performed", {
-            "length": len(text or ""),
-            "severity": severity,
-            "categories": sorted({f.get("category") for f in flags}),
-            "latency_ms": latency_ms,
-            "truncated": truncated,          # NEW: soft-cap visibility
-            "original_length": orig_len,     # NEW: what the client sent
-            "scanned_length": len(text),     # NEW: what we actually scanned
-	    "flags_count": len(flags),  # number of unique rule IDs after aggregation
-	    "matches_total": sum(f.get("match_count", 1) for f in flags),
-
-        })
+        log_event(
+            "scan_performed",
+            {
+                "length": len(text or ""),
+                "severity": severity,
+                "categories": sorted({f.get("category") for f in flags}),
+                "latency_ms": latency_ms,
+                "truncated": truncated,
+                "original_length": orig_len,
+                "scanned_length": len(text),
+                "flags_count": len(flags),
+                "matches_total": sum(f.get("match_count", 1) for f in flags),
+            },
+        )
     except Exception:
         pass  # telemetry must never break the API
 
-    # 4) Slack alert (best-effort, non-blocking)
+    # ---------- 4) Slack alert (best-effort, non-blocking) ----------
     try:
         if flags and _should_alert(severity):
             send_slack_alert(text=text, severity=severity, flags=flags, origin="scan")
     except Exception:
         pass
 
-    # 5) Final response (structured)
-    return JSONResponse({
-        "flagged": len(flags) > 0,
-        "severity": severity,
-        "flags": flags,
-        "truncated": truncated,             # surface to client
-        "original_length": orig_len,
-        "scanned_length": len(text),
-        "disclaimer": DISCLAIMER,
-    })
+    # ---------- 5) Final response (structured) ----------
+    meta = _rate_limit_meta(request)
+    return JSONResponse(
+        {
+            "flagged": len(flags) > 0,
+            "severity": severity,
+            "flags": flags,
+            "truncated": truncated,
+            "original_length": orig_len,
+            "scanned_length": len(text),
+            "disclaimer": DISCLAIMER,
+        },
+        headers={
+            "X-RateLimit-Limit": str(meta["limit"]),
+            "X-RateLimit-Remaining": str(meta["remaining"]),
+            "X-RateLimit-Reset": meta["reset_utc_date"],
+        },
+    )
 
 @app.get("/analytics")
 def analytics_summary(days: int = 7):
@@ -1066,11 +1084,9 @@ import stripe
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
 STRIPE_PRICE_INDIE_ONE = os.getenv("STRIPE_PRICE_INDIE_ONE", "").strip()   # one-time $19.99
 STRIPE_PRICE_INDIE_SUB = os.getenv("STRIPE_PRICE_INDIE_SUB", "").strip()   # monthly $9.99
-STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "").strip()               # monthly $29.99
 STRIPE_PRICE_LIFETIME  = os.getenv("STRIPE_PRICE_LIFETIME", "").strip()    # one-time $199
 STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "http://127.0.0.1:8000/pricing").strip()
 STRIPE_CANCEL_URL  = os.getenv("STRIPE_CANCEL_URL",  "http://127.0.0.1:8000/pricing").strip()
-
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -1133,29 +1149,6 @@ def buy_indie_sub(body: CheckoutReq | None = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
-# ==============================================
-# STRIPE — PRO PLAN CHECKOUT
-# ==============================================
-@app.post("/buy/pro")
-async def buy_pro():
-    """Create Stripe checkout for Pro plan."""
-    try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            mode="subscription",
-            line_items=[{
-                "price": STRIPE_PRICE_PRO,  # make sure this exists in your .env
-                "quantity": 1,
-            }],
-            success_url=STRIPE_SUCCESS_URL,
-            cancel_url=STRIPE_CANCEL_URL,
-        )
-        return {"url": session.url}
-    except Exception as e:
-        return JSONResponse({"detail": str(e)}, status_code=400)
-
-
-
 # Lifetime ONE-TIME ($199)
 @app.post("/buy/lifetime")
 def buy_lifetime(body: CheckoutReq | None = None):
@@ -1167,7 +1160,6 @@ def buy_lifetime(body: CheckoutReq | None = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 # <<< INSERT: STRIPE CHECKOUT ENDPOINTS (END)
-
 
 
 # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------

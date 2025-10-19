@@ -158,10 +158,12 @@
     Early adaptive learning continually improves detection accuracy over time.
   </p>
 
-  <div class="cta">
-    <button class="btn btn-primary" data-checkout="indie" type="button">Indie Plan (Early)</button>
-    <button class="btn btn-small" onclick="window.location.href='/__version'">API Docs</button>
-  </div>
+ <div class="cta">
+  <button class="btn btn-primary" data-checkout="indie" type="button">Indie Plan (Early)</button>
+  <button class="btn btn-primary" data-checkout="pro" type="button">Buy Pro</button>
+  <button class="btn btn-small" onclick="window.location.href='/__version'">API Docs</button>
+ </div>
+
 </article>
 <!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
 
@@ -297,10 +299,14 @@
   }
   // attach to all buttons with data-checkout
   document.querySelectorAll('[data-checkout]').forEach(el=>{
-    const plan=el.getAttribute('data-checkout');
-    const endpoint=plan==='indie'?'/buy/indie':'/buy/lifetime';
-    el.addEventListener('click',()=>startCheckout(endpoint));
-  });
+  const plan = el.getAttribute('data-checkout');
+  let endpoint = '';
+  if (plan === 'indie') endpoint = '/buy/indie';
+  else if (plan === 'pro') endpoint = '/buy/pro';
+  else if (plan === 'lifetime') endpoint = '/buy/lifetime';
+  if (endpoint) el.addEventListener('click', () => startCheckout(endpoint));
+});
+
 
   /* ============================================================
      MODAL LOGIC (Contact Sales & Partner With Us)
