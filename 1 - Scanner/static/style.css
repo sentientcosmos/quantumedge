@@ -248,6 +248,14 @@ input:focus {
 .banner.error {
   background: var(--error);
 }
+/* >>> INSERT: BANNER INFO STYLE (BEGIN) */
+.banner.info {
+  background: #2563eb;   /* Tailwind-style blue-600 */
+  color: #eaf2ff;         /* soft light text for contrast */
+  border: 1px solid #1d4ed8;
+}
+/* <<< INSERT: BANNER INFO STYLE (END) */
+
 
 /* ============= Footer ============= */
 footer {
