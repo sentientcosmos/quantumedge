@@ -33,6 +33,13 @@ except Exception as e:
     # Don't break the app if python-dotenv is not installed
     print("[dotenv] skip loading .env/ENV:", e)
 # ---------------------------------------------------------------------------
+# >>> INSERT: ANALYTICS — IMPORTS & ENV (BEGIN)
+import os, sqlite3, hashlib, time
+from datetime import datetime, timezone
+from fastapi import BackgroundTasks
+ANALYTICS_DB_PATH = os.getenv("ANALYTICS_DB_PATH", "analytics.db")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "dev-local-admin")  # add to .env.example / Render
+# <<< INSERT: ANALYTICS — IMPORTS & ENV (END)
 
 
 # ------------------------------
@@ -62,7 +69,44 @@ DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certif
 # ------------------------------
 app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 
+# >>> INSERT: ANALYTICS — DB INIT (BEGIN)
+def _db_connect():
+    # create connection per-call to avoid cross-thread issues
+    return sqlite3.connect(ANALYTICS_DB_PATH, check_same_thread=False)
+
+def _analytics_init():
+    with _db_connect() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS scan_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            ip_masked TEXT,
+            user_tier TEXT,
+            status TEXT NOT NULL,
+            flagged INTEGER NOT NULL,
+            latency_ms INTEGER,
+            prompt_hash TEXT,
+            report_path TEXT
+        );
+        """)
+        conn.commit()
+
+_analytics_init()
+# <<< INSERT: ANALYTICS — DB INIT (END)
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# >>> INSERT: RATE LIMIT BUCKET INITIALIZATION (BEGIN)
+# In-memory ledger for free-tier usage by "client" (IP + UA hash).
+# Key format: "<ip>|<ua_hash>" → Value: {"date": "YYYY-MM-DD", "count": int}
+_RATE_LIMIT_BUCKET: dict[str, dict[str, Any]] = {}
+
+# Resolve the free daily limit from environment; .env can override this.
+# Example in your .env currently sets FREE_DAILY_LIMIT=3 for testing.
+FREE_DAILY_LIMIT = int(os.getenv("FREE_DAILY_LIMIT", "15"))
+# <<< INSERT: RATE LIMIT BUCKET INITIALIZATION (END)
+
 def _mask_ip(ip: str) -> str:
     """
     Privacy-friendly IP masking for logs/telemetry (keeps /24 granularity for IPv4).
@@ -161,6 +205,36 @@ def _analytics_push(evt: str, props: dict):
     except Exception as e:
         # Non-fatal: never block scans because of analytics
         print("[analytics] in-memory push failed:", e)
+# >>> INSERT: ANALYTICS — HELPERS (BEGIN)
+def _mask_ip(ip: str) -> str:
+    if not ip:
+        return ""
+    parts = ip.split(".")
+    return ".".join(parts[:2] + ["x", "x"]) if len(parts) == 4 else ip[:6] + "…"
+
+def _sha1(text: str) -> str:
+    # privacy-safe: hash of prompt content, not the raw prompt
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()
+
+def _analytics_insert_row(row: dict):
+    with _db_connect() as conn:
+        conn.execute(
+            """INSERT INTO scan_logs
+               (timestamp, ip_masked, user_tier, status, flagged, latency_ms, prompt_hash, report_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row["timestamp"],
+                row.get("ip_masked",""),
+                row.get("user_tier","Free"),
+                str(row["status"]),
+                1 if row.get("flagged") else 0,
+                row.get("latency_ms"),
+                row.get("prompt_hash"),
+                row.get("report_path"),
+            ),
+        )
+        conn.commit()
+# <<< INSERT: ANALYTICS — HELPERS (END)
 
 
 
@@ -627,29 +701,51 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 # - Output: JSON with flagged (bool), severity, flags[], disclaimer
 # =============================================================================
 @app.get("/scan")
+# >>> PATCH: REPLACE /scan ENDPOINT (BEGIN)
+# =============================================================================
+# GET /scan — single-text scan (used by the demo UI)
+# - Input: query param ?text=...
+# - Output: JSON with flagged (bool), severity, flags[], disclaimer
+# =============================================================================
+@app.get("/scan")
 def scan(
-	request: Request,                                 # <-- add this
-	text: str = Query(..., description="Text to scan for prompt injection")):
+        request: Request,
+        text: str = Query(..., description="Text to scan for prompt injection"),
+        bt: BackgroundTasks = BackgroundTasks()):
     """
     Single-text scan endpoint. All logic must be indented inside this function.
     We:
-      1. Measure start time
-      2. Run compiled regex scanner
-      3. Compute latency in ms and log telemetry
-      4. Attempt Slack alert (best-effort)
-      5. Return structured JSONResponse
+      1. Apply free-tier rate limit (returns 429 if exceeded)
+      2. Enforce soft input cap (head/tail slice)
+      3. Run compiled regex scanner
+      4. Log telemetry + best-effort Slack alert
+      5. Return structured JSON
     """
-   # ---------- FREE TIER RATE LIMIT (anonymous) ----------
+
+    # --- analytics timer + client info (for /admin/usage rows) ---
+    start_ts = time.perf_counter()
+    client_ip = request.client.host if request and request.client else ""
+    tier = "Free"  # TODO: later map from API key when paid users exist
+
+    # ---------- FREE TIER RATE LIMIT (anonymous) ----------
     rl = _rate_limit_check_and_increment(request)
     if rl is not None:
-        # Blocked: return a 429 with clear upgrade path.
+        # 429: record the rate-limited event, then return JSON
+        end_ms = int((time.perf_counter() - start_ts) * 1000)
+        bt.add_task(_analytics_insert_row, {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "ip_masked": _mask_ip(client_ip),
+            "user_tier": tier,
+            "status": 429,
+            "flagged": False,
+            "latency_ms": end_ms,
+            "prompt_hash": _sha1(text or ""),
+            "report_path": None,
+        })
         return JSONResponse(rl, status_code=429)
     # ------------------------------------------------------
-    """
-    Single-text scan endpoint.
-    """
+
     # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
-    # Configure via env; default total slice = 50k chars (35k head + 15k tail)
     MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
     HEAD_RATIO = 0.7                                               # 70% head, 30% tail
 
@@ -658,51 +754,40 @@ def scan(
     truncated = False
 
     if orig_len > MAX_INPUT_CHARS:
-        # Compute head/tail sizes
         head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
         tail_n = MAX_INPUT_CHARS - head_n
-
         head = txt[:head_n]
         tail = txt[-tail_n:] if tail_n > 0 else ""
-
-        # Join with a visible marker so UX and logs show truncation
         text = head + "\n...[TRUNCATED]...\n" + tail
         truncated = True
     else:
-        # keep as-is
         text = txt
     # ---------- END INPUT SIZE POLICY ----------
 
-    # 1) Start timer for latency (ms)
-    start = time.time()
+    # 1) Start timer for rule-engine latency (ms)
+    t0 = time.time()
 
     # 2) Run the rule scanner (compiled at startup)
-    flags, severity = scan_text_rules(text)
-
-    # Collapse duplicates and trim snippets for cleaner UX
-    raw_flags = flags
-    flags = aggregate_flags(raw_flags)
-
-
+    flags_raw, severity = scan_text_rules(text)
+    # Collapse duplicates + prettify snippets for UI
+    flags = aggregate_flags(flags_raw)
 
     # 3) Compute latency and include it in telemetry
-    latency_ms = int((time.time() - start) * 1000)
-
+    latency_ms = int((time.time() - t0) * 1000)
     try:
         log_event("scan_performed", {
             "length": len(text or ""),
             "severity": severity,
             "categories": sorted({f.get("category") for f in flags}),
             "latency_ms": latency_ms,
-            "truncated": truncated,          # NEW: soft-cap visibility
-            "original_length": orig_len,     # NEW: what the client sent
-            "scanned_length": len(text),     # NEW: what we actually scanned
-	    "flags_count": len(flags),  # number of unique rule IDs after aggregation
-	    "matches_total": sum(f.get("match_count", 1) for f in flags),
-
+            "truncated": truncated,
+            "original_length": orig_len,
+            "scanned_length": len(text),
+            "flags_count": len(flags),
+            "matches_total": sum(f.get("match_count", 1) for f in flags),
         })
     except Exception:
-        pass  # telemetry must never break the API
+        pass  # analytics should never break the API
 
     # 4) Slack alert (best-effort, non-blocking)
     try:
@@ -711,16 +796,33 @@ def scan(
     except Exception:
         pass
 
-    # 5) Final response (structured)
-    return JSONResponse({
+    # 5) Build response
+    result = {
         "flagged": len(flags) > 0,
         "severity": severity,
         "flags": flags,
-        "truncated": truncated,             # surface to client
+        "truncated": truncated,
         "original_length": orig_len,
         "scanned_length": len(text),
         "disclaimer": DISCLAIMER,
+    }
+
+    # --- analytics: record successful scan row (200) ---
+    end_ms = int((time.perf_counter() - start_ts) * 1000)
+    bt.add_task(_analytics_insert_row, {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ip_masked": _mask_ip(client_ip),
+        "user_tier": tier,
+        "status": 200,
+        "flagged": bool(result.get("flagged") or (result.get("severity","").lower() in ["high","medium"])),
+        "latency_ms": end_ms,
+        "prompt_hash": _sha1(text or ""),
+        "report_path": result.get("report_path"),
     })
+
+    return JSONResponse(result)
+# <<< PATCH: REPLACE /scan ENDPOINT (END)
+
 
 @app.get("/analytics")
 def analytics_summary(days: int = 7):
@@ -923,6 +1025,47 @@ def analytics_html():
 })();
 </script>
 </body></html>""")
+
+# >>> INSERT: ANALYTICS — ADMIN ENDPOINT (BEGIN)
+from fastapi import Header, HTTPException
+
+@app.get("/admin/usage")
+def admin_usage(limit: int = 20, x_admin_token: str = Header(None)):
+    """
+    Admin-only: return recent scan rows from SQLite.
+    Auth: send header X-Admin-Token matching ADMIN_TOKEN (from .env / Render).
+    """
+    # Simple header check
+    if ADMIN_TOKEN and x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Clamp limit 1..200
+    try:
+        n = max(1, min(int(limit), 200))
+    except Exception:
+        n = 20
+
+    with _db_connect() as conn:
+        cur = conn.execute(
+            "SELECT id, timestamp, ip_masked, user_tier, status, flagged, latency_ms "
+            "FROM scan_logs ORDER BY id DESC LIMIT ?",
+            (n,),
+        )
+        rows = [
+            {
+                "id": r[0],
+                "timestamp": r[1],
+                "ip_masked": r[2],
+                "user_tier": r[3],
+                "status": int(r[4]),
+                "flagged": bool(r[5]),
+                "latency_ms": int(r[6]) if r[6] is not None else None,
+            }
+            for r in cur.fetchall()
+        ]
+    return {"rows": rows, "count": len(rows)}
+# <<< INSERT: ANALYTICS — ADMIN ENDPOINT (END)
+
 
 # >>> SECTION A (BEGIN)
 # ================================
