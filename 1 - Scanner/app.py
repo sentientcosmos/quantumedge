@@ -71,8 +71,17 @@ app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 
 # >>> INSERT: ANALYTICS — DB INIT (BEGIN)
 def _db_connect():
-    # create connection per-call to avoid cross-thread issues
-    return sqlite3.connect(ANALYTICS_DB_PATH, check_same_thread=False)
+    # One connection per call avoids cross-thread issues.
+    # WAL improves durability and prevents full-file locks.
+    conn = sqlite3.connect(ANALYTICS_DB_PATH, check_same_thread=False)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")     # safer, allows concurrent reads
+        conn.execute("PRAGMA synchronous=NORMAL;")   # balances durability & speed
+        conn.execute("PRAGMA foreign_keys=ON;")      # keeps relational integrity
+    except Exception:
+        pass
+    return conn
+
 
 def _analytics_init():
     with _db_connect() as conn:
