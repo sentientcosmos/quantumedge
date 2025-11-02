@@ -69,6 +69,50 @@ class Customer(Base):
 #     result = Column(Text)
 #     created_at = Column(DateTime, default=datetime.utcnow)
 
+# ==============================================================
+#  MODEL: APIKey
+#  Purpose: Store hashed API keys linked to paid Stripe customers.
+#  This table connects authentication (API key access) with monetization tiers.
+# ==============================================================
+
+from hashlib import sha256
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
+
+class APIKey(Base):
+    """
+    Represents a unique API key issued to a customer after payment.
+    - The key is stored as a SHA-256 hash (never in plain text).
+    - Each key is linked to a customer email and plan tier.
+    - `active` allows soft revocation without deleting the record.
+    """
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String, index=True, nullable=False)        # Customer's Stripe email
+    key_hash = Column(String, unique=True, nullable=False)          # Hashed version of the API key
+    plan = Column(String, nullable=False, default="free")           # e.g. free, indie, pro, lifetime
+    active = Column(Boolean, default=True)                          # False if revoked or expired
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def verify_key(self, api_key: str) -> bool:
+        """
+        Compare an incoming plaintext API key to this record’s hash.
+        Returns True if they match, otherwise False.
+        """
+        return self.key_hash == sha256(api_key.encode()).hexdigest()
+
+    @staticmethod
+    def hash_key(plain_key: str) -> str:
+        """
+        Static helper to hash any given API key string.
+        This is used during insertion and verification.
+        """
+        return sha256(plain_key.encode()).hexdigest()
+
+# ==============================================================
+#  END OF APIKey MODEL
+# ==============================================================
 
 # ============================================================
 # DATABASE CREATION UTILITY
