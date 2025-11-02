@@ -40,6 +40,10 @@ from fastapi import BackgroundTasks
 ANALYTICS_DB_PATH = os.getenv("ANALYTICS_DB_PATH", "analytics.db")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "dev-local-admin")  # add to .env.example / Render
 # <<< INSERT: ANALYTICS — IMPORTS & ENV (END)
+from models import Base, engine, SessionLocal, init_db
+
+# Initialize DB at startup
+init_db()
 
 
 # ------------------------------
@@ -1359,9 +1363,70 @@ async def stripe_webhook_listener(request: Request):
         # The signature did not match the expected secret
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # Step 3: Log or print the event type so we can confirm reception
+      # Step 3: Handle key Stripe events and sync to SQLite
     event_type = event["type"]
+    data = event["data"]["object"]
+
     print(f"[STRIPE WEBHOOK RECEIVED] Event type: {event_type}")
+
+    # Open a DB session using your models.py setup
+    from models import SessionLocal, Customer
+    session = SessionLocal()
+
+    try:
+        if event_type == "checkout.session.completed":
+            # This fires after a successful payment
+            email = data.get("customer_details", {}).get("email")
+            stripe_customer_id = data.get("customer")
+            plan = data.get("mode")  # "payment" or "subscription"
+
+            if email:
+                # Either update or insert the record
+                cust = session.query(Customer).filter_by(email=email).first()
+                if cust:
+                    cust.status = "active"
+                    cust.tier = "indie" if "indie" in plan else "lifetime"
+                    cust.stripe_customer_id = stripe_customer_id
+                else:
+                    cust = Customer(
+                        email=email,
+                        tier="indie" if "indie" in plan else "lifetime",
+                        status="active",
+                        stripe_customer_id=stripe_customer_id
+                    )
+                    session.add(cust)
+                session.commit()
+                print(f"[DB] Customer {email} recorded as {cust.status}")
+
+        elif event_type == "invoice.payment_failed":
+            stripe_customer_id = data.get("customer")
+            cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if cust:
+                cust.status = "payment_failed"
+                session.commit()
+                print(f"[DB] Customer {cust.email} marked payment_failed")
+
+        elif event_type == "customer.subscription.deleted":
+            stripe_customer_id = data.get("customer")
+            cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if cust:
+                cust.status = "canceled"
+                session.commit()
+                print(f"[DB] Customer {cust.email} marked canceled")
+
+        else:
+            # Non-critical events are just logged
+            print(f"[STRIPE WEBHOOK] Ignored event type: {event_type}")
+
+    except Exception as e:
+        session.rollback()
+        print("[STRIPE WEBHOOK ERROR]", e)
+    finally:
+        session.close()
+
+    # Always return 200 so Stripe knows we processed it
+    return {"status": "success", "event_type": event_type}
+
 
     # Step 4: Return 200 to tell Stripe we received it successfully
     return {"status": "received", "event_type": event_type}
