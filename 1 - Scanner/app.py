@@ -1320,6 +1320,53 @@ def buy_lifetime(body: CheckoutReq | None = None):
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 # <<< INSERT: STRIPE CHECKOUT ENDPOINTS (END)
 
+# >>> INSERT: STRIPE WEBHOOK SKELETON (BEGIN)
+# This route listens for Stripe's automatic event notifications (webhooks).
+# It is the *server-side confirmation* of payments, subscriptions, cancellations, etc.
+# At this stage, it only verifies authenticity and logs the event type.
+
+from fastapi import Request, HTTPException
+import stripe
+# >>> INSERT: STRIPE WEBHOOK SECRET SWITCH (BEGIN)
+import os
+
+# Decide whether you're running locally or on Render
+ENV = os.getenv("ENV", "DEV")  # defaults to DEV if ENV not set
+if ENV.upper() == "DEV":
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LOCAL")
+else:
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LIVE")
+# <<< INSERT: STRIPE WEBHOOK SECRET SWITCH (END)
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook_listener(request: Request):
+    # Step 1: Retrieve the raw body and Stripe signature header
+    payload = await request.body()  # raw JSON data sent by Stripe
+    sig_header = request.headers.get("stripe-signature")
+
+    # Step 2: Verify the signature to ensure the event actually came from Stripe
+    try:
+        event = stripe.Webhook.construct_event(
+            payload=payload,
+            sig_header=sig_header,
+            secret=STRIPE_WEBHOOK_SECRET,  # must be set in your .env
+        )
+    except ValueError:
+        # The payload was not valid JSON
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        # The signature did not match the expected secret
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Step 3: Log or print the event type so we can confirm reception
+    event_type = event["type"]
+    print(f"[STRIPE WEBHOOK RECEIVED] Event type: {event_type}")
+
+    # Step 4: Return 200 to tell Stripe we received it successfully
+    return {"status": "received", "event_type": event_type}
+
+# <<< INSERT: STRIPE WEBHOOK SKELETON (END)
 
 
 # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
