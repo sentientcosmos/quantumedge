@@ -713,7 +713,7 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 # - Input: query param ?text=...
 # - Output: JSON with flagged (bool), severity, flags[], disclaimer
 # =============================================================================
-@app.get("/scan")
+
 # >>> PATCH: REPLACE /scan ENDPOINT (BEGIN)
 # =============================================================================
 # GET /scan — single-text scan (used by the demo UI)
@@ -1326,12 +1326,11 @@ def buy_lifetime(body: CheckoutReq | None = None):
 
 # >>> INSERT: STRIPE WEBHOOK SKELETON (BEGIN)
 # This route listens for Stripe's automatic event notifications (webhooks).
-# It is the *server-side confirmation* of payments, subscriptions, cancellations, etc.
-# At this stage, it only verifies authenticity and logs the event type.
+# It verifies authenticity, logs the raw event to SQLite for observability,
+# and applies simple business updates to your Customer table.
 
 from fastapi import Request, HTTPException
 import stripe
-# >>> INSERT: STRIPE WEBHOOK SECRET SWITCH (BEGIN)
 import os
 
 # Decide whether you're running locally or on Render
@@ -1340,61 +1339,106 @@ if ENV.upper() == "DEV":
     STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LOCAL")
 else:
     STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LIVE")
-# <<< INSERT: STRIPE WEBHOOK SECRET SWITCH (END)
 
+def _init_webhook_events_table():
+    """Ensure the webhook_events table exists in analytics.db."""
+    with _db_connect() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            customer_id TEXT,
+            email TEXT,
+            payload TEXT
+        );
+        """)
+        conn.commit()
+
+_init_webhook_events_table()
+
+def _log_webhook_event(event_type: str, customer_id: str | None, email: str | None, payload: dict):
+    """Insert a webhook event into analytics.db (truncated payload for safety)."""
+    try:
+        with _db_connect() as conn:
+            conn.execute(
+                "INSERT INTO webhook_events (ts, event_type, customer_id, email, payload) VALUES (?, ?, ?, ?, ?)",
+                (
+                    datetime.utcnow().isoformat() + "Z",
+                    event_type,
+                    customer_id,
+                    email,
+                    json.dumps(payload, ensure_ascii=False)[:5000],
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        print("[STRIPE LOGGING ERROR]", e)
 
 @app.post("/stripe/webhook")
 async def stripe_webhook_listener(request: Request):
-    # Step 1: Retrieve the raw body and Stripe signature header
-    payload = await request.body()  # raw JSON data sent by Stripe
+    # 1) Verify signature
+    payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
-
-    # Step 2: Verify the signature to ensure the event actually came from Stripe
     try:
         event = stripe.Webhook.construct_event(
             payload=payload,
             sig_header=sig_header,
-            secret=STRIPE_WEBHOOK_SECRET,  # must be set in your .env
+            secret=STRIPE_WEBHOOK_SECRET,
         )
     except ValueError:
-        # The payload was not valid JSON
         raise HTTPException(status_code=400, detail="Invalid payload")
     except stripe.error.SignatureVerificationError:
-        # The signature did not match the expected secret
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-      # Step 3: Handle key Stripe events and sync to SQLite
-    event_type = event["type"]
-    data = event["data"]["object"]
+    # 2) Basic fields
+    event_type = event.get("type", "")
+    data = (event.get("data") or {}).get("object") or {}
 
-    print(f"[STRIPE WEBHOOK RECEIVED] Event type: {event_type}")
+    # 3) Log every event to SQLite for observability
+    try:
+        customer_info = {}
+        if isinstance(data, dict):
+            customer_info = data.get("customer_details") or {}
+        email = (
+            customer_info.get("email")
+            or data.get("receipt_email")
+            or (data.get("billing_details") or {}).get("email")
+            or ""
+        )
+        _log_webhook_event(
+            event_type=event_type,
+            customer_id=data.get("customer"),
+            email=email,
+            payload=event,
+        )
+        print(f"[DB] Logged Stripe event → {event_type}")
+    except Exception as e:
+        print("[STRIPE LOGGING ERROR] Could not insert event:", repr(e))
 
-    # Open a DB session using your models.py setup
+    # 4) Lightweight business logic updates
     from models import SessionLocal, Customer
     session = SessionLocal()
-
     try:
         if event_type == "checkout.session.completed":
-            # This fires after a successful payment
-            email = data.get("customer_details", {}).get("email")
+            email = (data.get("customer_details") or {}).get("email")
             stripe_customer_id = data.get("customer")
-            plan = data.get("mode")  # "payment" or "subscription"
+            plan_mode = data.get("mode")  # "payment" or "subscription"
 
             if email:
-                # Either update or insert the record
                 cust = session.query(Customer).filter_by(email=email).first()
-                if cust:
-                    cust.status = "active"
-                    cust.tier = "indie" if "indie" in plan else "lifetime"
-                    cust.stripe_customer_id = stripe_customer_id
-                else:
+                if not cust:
                     cust = Customer(
                         email=email,
-                        tier="indie" if "indie" in plan else "lifetime",
+                        tier="indie" if plan_mode == "subscription" else "lifetime",
                         status="active",
-                        stripe_customer_id=stripe_customer_id
+                        stripe_customer_id=stripe_customer_id,
                     )
                     session.add(cust)
+                else:
+                    cust.status = "active"
+                    cust.tier = "indie" if plan_mode == "subscription" else "lifetime"
+                    cust.stripe_customer_id = stripe_customer_id
                 session.commit()
                 print(f"[DB] Customer {email} recorded as {cust.status}")
 
@@ -1415,7 +1459,6 @@ async def stripe_webhook_listener(request: Request):
                 print(f"[DB] Customer {cust.email} marked canceled")
 
         else:
-            # Non-critical events are just logged
             print(f"[STRIPE WEBHOOK] Ignored event type: {event_type}")
 
     except Exception as e:
@@ -1424,15 +1467,9 @@ async def stripe_webhook_listener(request: Request):
     finally:
         session.close()
 
-    # Always return 200 so Stripe knows we processed it
-    return {"status": "success", "event_type": event_type}
-
-
-    # Step 4: Return 200 to tell Stripe we received it successfully
+    # 5) Always acknowledge receipt
     return {"status": "received", "event_type": event_type}
-
 # <<< INSERT: STRIPE WEBHOOK SKELETON (END)
-
 
 # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
 # Purpose:
@@ -1673,7 +1710,7 @@ def roadmap_page():
     - We return the exact contents of roadmap.html from disk.
     - Keeping it as a plain file makes it easy to edit without touching Python.
     """
-    file_path = BASE_DIR / "roadmap.html"
+    file_path = pathlib.Path(__file__).parent / "roadmap.html"
     if file_path.exists():
         # FileResponse streams the file with correct headers; read_text also works,
         # but FileResponse is efficient and avoids manual content-type handling.
@@ -1693,10 +1730,7 @@ def roadmap_page():
 APP_VERSION = "scanner-v0.3.3"
 
 
-# -----------------------------------------------------------------------------
 
-# Base directory of this app file (used to resolve roadmap.html)
-BASE_DIR = pathlib.Path(__file__).parent
 
 # --------------------- PRICING MODEL (authoritative source) -------------------
 PRICING_MODEL_PATH = pathlib.Path(__file__).parent / "PRICING_MODEL_CONTEXT.json"
