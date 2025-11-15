@@ -219,11 +219,7 @@ def _analytics_push(evt: str, props: dict):
         # Non-fatal: never block scans because of analytics
         print("[analytics] in-memory push failed:", e)
 # >>> INSERT: ANALYTICS — HELPERS (BEGIN)
-def _mask_ip(ip: str) -> str:
-    if not ip:
-        return ""
-    parts = ip.split(".")
-    return ".".join(parts[:2] + ["x", "x"]) if len(parts) == 4 else ip[:6] + "…"
+
 
 def _sha1(text: str) -> str:
     # privacy-safe: hash of prompt content, not the raw prompt
@@ -1789,21 +1785,6 @@ def _free_daily_limit_from_model(default: int = 15) -> int:
         return max(1, val)
     except Exception:
         return default
-
-
-# ------------------------ FREE TIER RATE LIMIT CONFIG -------------------------
-# Pull the daily free-tier limit from the authoritative pricing model (with env override).
-# - If FREE_DAILY_LIMIT env var is set, it wins (ops control).
-# - Otherwise we read "scan_limit_per_day" from the "Free" tier in PRICING_MODEL_CONTEXT.json.
-FREE_DAILY_LIMIT = _free_daily_limit_from_model(default=15)
-
-# If you already use an API key (e.g., for paid/beta users), set it in env to bypass rate limits.
-API_KEY = os.getenv("API_KEY", "").strip()
-
-# In-memory counters for anonymous rate limit:
-# token (ip|ua-hash) -> {"date": "YYYY-MM-DD", "count": int}
-_RATE_LIMIT_BUCKET = {}
-# ----------------------------------------------------------------------------- 
 
 
 # ----------------------------------------------------------------------------- 
