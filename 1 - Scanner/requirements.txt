@@ -9,3 +9,6 @@ reportlab
 
 stripe
 httpx
+
+sqlalchemy
+
