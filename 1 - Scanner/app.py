@@ -13,6 +13,7 @@ import re                 # regular expressions => rule engine
 import json               # json encoding (feedback file, slack payload)
 import pathlib            # cross-platform paths for index.html and datasets
 import urllib.request     # simple HTTP POST (used for Slack webhook)
+import secrets            # for generating secure API keys
 import time  # for latency analytics
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
@@ -112,7 +113,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # >>> INSERT: RATE LIMIT BUCKET INITIALIZATION (BEGIN)
 # In-memory ledger for free-tier usage by "client" (IP + UA hash).
-# Key format: "<ip>|<ua_hash>" → Value: {"date": "YYYY-MM-DD", "count": int}
+# Key format: "<ip>|<ua_hash>" -> Value: {"date": "YYYY-MM-DD", "count": int}
 _RATE_LIMIT_BUCKET: dict[str, dict[str, Any]] = {}
 
 # Resolve the free daily limit from environment; .env can override this.
@@ -691,7 +692,7 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 
     top_flags = ", ".join(sorted({f.get("id", "?") for f in flags})) or "none"
     preview = (text or "")[:300].replace("\n", " ")
-    payload = {"text": f"QubitGrid alert ({origin}): severity={severity}, flags=[{top_flags}]\n→ preview: {preview}"}
+    payload = {"text": f"QubitGrid alert ({origin}): severity={severity}, flags=[{top_flags}]\n-> preview: {preview}"}
     try:
         req = urllib.request.Request(
             SLACK_WEBHOOK,
@@ -1243,7 +1244,7 @@ def _stripe_ready(kind: str) -> tuple[bool, str]:
         return False, "Missing STRIPE_PRICE_LIFETIME"
     return True, ""
 
-def _create_checkout(price_id: str, quantity: int, mode: str = "payment") -> dict:
+def _create_checkout(price_id: str, quantity: int, mode: str = "payment", metadata: dict = None) -> dict:
     """
     Create hosted Checkout Session in Stripe Test Mode.
     - mode='payment'      -> one-time (Indie ONE, Lifetime)
@@ -1255,10 +1256,11 @@ def _create_checkout(price_id: str, quantity: int, mode: str = "payment") -> dic
         success_url=STRIPE_SUCCESS_URL + "?status=success&session_id={CHECKOUT_SESSION_ID}",
         cancel_url=STRIPE_CANCEL_URL + "?status=cancel",
         allow_promotion_codes=True,
+        metadata=metadata or {},
     )
     # lightweight telemetry
     try:
-        log_event("stripe_checkout_created", {"price": price_id, "qty": quantity or 1, "mode": mode})
+        log_event("stripe_checkout_created", {"price": price_id, "qty": quantity or 1, "mode": mode, "meta": metadata})
     except Exception:
         pass
     return {"url": session.url}
@@ -1270,7 +1272,12 @@ def buy_indie(body: CheckoutReq | None = None):
     if not ok:
         raise HTTPException(status_code=501, detail=f"Stripe not configured: {reason}")
     try:
-        return _create_checkout(STRIPE_PRICE_INDIE_ONE, (body.quantity if body else 1), mode="payment")
+        return _create_checkout(
+            STRIPE_PRICE_INDIE_ONE, 
+            (body.quantity if body else 1), 
+            mode="payment",
+            metadata={"qg_tier": "Indie"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
@@ -1281,7 +1288,12 @@ def buy_indie_sub(body: CheckoutReq | None = None):
     if not ok:
         raise HTTPException(status_code=501, detail=f"Stripe not configured: {reason}")
     try:
-        return _create_checkout(STRIPE_PRICE_INDIE_SUB, (body.quantity if body else 1), mode="subscription")
+        return _create_checkout(
+            STRIPE_PRICE_INDIE_SUB, 
+            (body.quantity if body else 1), 
+            mode="subscription",
+            metadata={"qg_tier": "Indie"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
@@ -1301,6 +1313,7 @@ async def buy_pro():
             }],
             success_url=STRIPE_SUCCESS_URL,
             cancel_url=STRIPE_CANCEL_URL,
+            metadata={"qg_tier": "Pro"},
         )
         return {"url": session.url}
     except Exception as e:
@@ -1315,7 +1328,12 @@ def buy_lifetime(body: CheckoutReq | None = None):
     if not ok:
         raise HTTPException(status_code=501, detail=f"Stripe not configured: {reason}")
     try:
-        return _create_checkout(STRIPE_PRICE_LIFETIME, (body.quantity if body else 1), mode="payment")
+        return _create_checkout(
+            STRIPE_PRICE_LIFETIME, 
+            (body.quantity if body else 1), 
+            mode="payment",
+            metadata={"qg_tier": "Lifetime"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 # <<< INSERT: STRIPE CHECKOUT ENDPOINTS (END)
@@ -1408,35 +1426,85 @@ async def stripe_webhook_listener(request: Request):
             email=email,
             payload=event,
         )
-        print(f"[DB] Logged Stripe event → {event_type}")
+        print(f"[DB] Logged Stripe event -> {event_type}")
     except Exception as e:
         print("[STRIPE LOGGING ERROR] Could not insert event:", repr(e))
 
     # 4) Lightweight business logic updates
-    from models import SessionLocal, Customer
+    from models import SessionLocal, Customer, APIKey
     session = SessionLocal()
     try:
         if event_type == "checkout.session.completed":
             email = (data.get("customer_details") or {}).get("email")
             stripe_customer_id = data.get("customer")
             plan_mode = data.get("mode")  # "payment" or "subscription"
+            
+            # --- TIER RESOLUTION LOGIC ---
+            # 1. Try server-controlled metadata
+            meta = data.get("metadata") or {}
+            tier_hint = meta.get("qg_tier")
+            
+            # 2. Canonical Tier List (must match PRICING_MODEL_CONTEXT.json)
+            CANONICAL_TIERS = {"Indie", "Pro", "Lifetime", "Team", "Enterprise"}
+            
+            # 3. Resolve
+            if tier_hint and tier_hint in CANONICAL_TIERS:
+                canonical_tier = tier_hint
+            else:
+                # Fallback for legacy/unknown sessions
+                if plan_mode == "subscription":
+                    canonical_tier = "Indie"
+                elif plan_mode == "payment":
+                    canonical_tier = "Lifetime"
+                else:
+                    canonical_tier = "Free" # Should rarely happen in checkout flow
 
             if email:
+                # Idempotent Upsert: Update if exists, else create.
                 cust = session.query(Customer).filter_by(email=email).first()
                 if not cust:
                     cust = Customer(
                         email=email,
-                        tier="indie" if plan_mode == "subscription" else "lifetime",
+                        tier=canonical_tier,
                         status="active",
                         stripe_customer_id=stripe_customer_id,
                     )
                     session.add(cust)
                 else:
                     cust.status = "active"
-                    cust.tier = "indie" if plan_mode == "subscription" else "lifetime"
+                    cust.tier = canonical_tier
                     cust.stripe_customer_id = stripe_customer_id
                 session.commit()
-                print(f"[DB] Customer {email} recorded as {cust.status}")
+                # Note: This upsert is idempotent under Stripe retries because we always update the same Customer row by email.
+                print(f"[DB] Customer {email} recorded as {cust.status} (Tier: {canonical_tier})")
+                
+                # --- API KEY GENERATION ---
+                # 3.2 Idempotent API Key Creation
+                PAID_TIERS = {"Indie", "Pro", "Lifetime", "Team", "Enterprise"}
+                if canonical_tier in PAID_TIERS:
+                    # Check if active key already exists for this email+plan
+                    existing_key = session.query(APIKey).filter_by(
+                        user_email=email, 
+                        plan=canonical_tier, 
+                        active=True
+                    ).first()
+                    
+                    if not existing_key:
+                        # Generate new key
+                        plain_key = "qg_" + secrets.token_urlsafe(32)
+                        key_hash = APIKey.hash_key(plain_key)
+                        
+                        new_key = APIKey(
+                            user_email=email,
+                            key_hash=key_hash,
+                            plan=canonical_tier,
+                            active=True,
+                        )
+                        session.add(new_key)
+                        session.commit()
+                        print(f"[APIKEY] Issued new key for {email} (tier={canonical_tier}, id={new_key.id})")
+                    else:
+                        print(f"[APIKEY] Key already exists for {email} (tier={canonical_tier}) - skipping generation")
 
         elif event_type == "invoice.payment_failed":
             stripe_customer_id = data.get("customer")

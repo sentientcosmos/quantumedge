@@ -8,3 +8,4 @@ reportlab
 # <<< INSERT: SECTION A (END)
 
 stripe
+httpx
