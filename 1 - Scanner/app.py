@@ -2179,6 +2179,59 @@ def _free_daily_limit_from_model(default: int = 15) -> int:
 
 
 
+@app.post("/rotate-key")
+def rotate_api_key(request: Request):
+    """
+    Rotate API Key: Invalidate current key, issue new one.
+    Auth: Bearer <OLD_API_KEY>
+    """
+    # 1. Authenticate (View-Only is sufficient to prove identity)
+    error, ctx = _authenticate_view_only(request)
+    if error:
+        return JSONResponse(error, status_code=error.get("status_code", 401))
+
+    old_hash = ctx["key_hash"]
+    email = ctx["email"]
+    plan = ctx["plan"]
+
+    from models import SessionLocal, APIKey
+    session = SessionLocal()
+    try:
+        # 2. Atomic Rotation
+        # A. Invalidate old key
+        old_record = session.query(APIKey).filter_by(key_hash=old_hash).first()
+        if old_record:
+            old_record.active = False
+        
+        # B. Generate new key
+        new_raw = "qg_" + secrets.token_urlsafe(32)
+        new_hash = APIKey.hash_key(new_raw)
+        
+        new_key = APIKey(
+            user_email=email,
+            key_hash=new_hash,
+            plan=plan,
+            active=True
+        )
+        session.add(new_key)
+        session.commit()
+        
+        # 3. Clear Rate Limit Bucket for old key
+        _PAID_LIMIT_BUCKET.pop(old_hash, None)
+        
+        # 4. Return new key (once)
+        return {
+            "new_key": new_raw,
+            "masked": f"qg_{new_raw[:4]}...{new_raw[-4:]}",
+            "plan": plan,
+            "email": email
+        }
+    except Exception as e:
+        session.rollback()
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        session.close()
+
 # >>> INSERT: USER DASHBOARD (BEGIN)
 @app.get("/dashboard", response_class=HTMLResponse)
 def user_dashboard(request: Request):
@@ -2220,6 +2273,8 @@ def user_dashboard(request: Request):
   .status-inactive{{background:rgba(239,68,68,0.2);color:var(--danger)}}
   .key-box{{background:#0d1116;border:1px solid var(--line);padding:10px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:20px;word-break:break-all;color:var(--accent)}}
   .links{{margin-top:20px;text-align:center;font-size:13px}}
+  .btn-rotate{{background:var(--line);color:var(--fg);border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:12px;margin-top:10px;width:100%}}
+  .btn-rotate:hover{{background:#2d3b4f}}
   a{{color:var(--muted)}}
 </style>
 </head>
@@ -2229,9 +2284,10 @@ def user_dashboard(request: Request):
       <h1>My Subscription</h1>
       <h2>{ctx['email']}</h2>
       
-      <div class="key-box">{ctx['masked_key']}</div>
+      <div id="key-box" class="key-box">{ctx['masked_key']}</div>
+      <button id="rotate-btn" class="btn-rotate">🔄 Rotate API Key</button>
       
-      <div class="stat-row">
+      <div class="stat-row" style="margin-top:20px">
         <span class="label">Plan Tier</span>
         <span class="value">{ctx['plan']}</span>
       </div>
@@ -2256,6 +2312,52 @@ def user_dashboard(request: Request):
        <a href="/">Home</a> • <a href="/roadmap">Roadmap</a>
     </div>
   </div>
+  <script>
+    const btn = document.getElementById('rotate-btn');
+    const keyBox = document.getElementById('key-box');
+    
+    // Simplest possible extraction of current Bearer token from browser logic?
+    // Actually, we can't extract it from headers easily in JS if we just visited the page.
+    // The USER has to provide it? No, if we visited via ?key=... or Header, the browser doesn't expose it.
+    // WAIT: The spec says "Authenticated using existing valid API key".
+    // If the user visited /dashboard via browser, how did they authenticate? 
+    // They passed Authorization: Bearer <key> via a tool like Postman or a custom client?
+    // A standard browser visit to /dashboard would prompt for Basic Auth or fail if we demand Bearer.
+    // LIMITATION: HTML Dashboard currently assumes we can set headers.
+    // FOR MVP: We assume the user creates a script or modifies headers.
+    // But for the JS to work, it needs the key.
+    // We will Prompt the user for their current key to confirm rotation?
+    // OR we inject the key into the HTML (Risk!).
+    // Spec says: "Dash rendering is read-only... Mod /dash HTML to include... fetch('/rotate-key', headers: {{Auth: Bearer + currentKey}})".
+    // To satisfy spec without injecting plaintext, we prompt.
+    
+    btn.addEventListener('click', async () => {{
+        const currentKey = prompt("Please confirm your CURRENT API Key to rotate it:");
+        if (!currentKey) return;
+        
+        btn.disabled = true;
+        btn.innerText = "Rotating...";
+        
+        try {{
+            const res = await fetch('/rotate-key', {{
+                method: 'POST',
+                headers: {{ 'Authorization': 'Bearer ' + currentKey }}
+            }});
+            const data = await res.json();
+            
+            if (res.ok) {{
+                keyBox.innerText = data.masked;
+                alert("SUCCESS! \\n\\nYour NEW API Key is:\\n" + data.new_key + "\\n\\nSAVE THIS NOW. It will not be shown again.");
+            }} else {{
+                alert("Error: " + (data.error || res.statusText));
+            }}
+        }} catch (e) {{
+            alert("Network Error");
+        }}
+        btn.disabled = false;
+        btn.innerText = "🔄 Rotate API Key";
+    }});
+  </script>
 </body>
 </html>""")
 # <<< INSERT: USER DASHBOARD (END)
