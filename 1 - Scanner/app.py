@@ -1709,7 +1709,7 @@ def _log_webhook_event(event_type: str, customer_id: str | None, email: str | No
         print("[STRIPE LOGGING ERROR]", e)
 
 @app.post("/stripe/webhook")
-async def stripe_webhook_listener(request: Request):
+async def stripe_webhook_listener(request: Request, background_tasks: BackgroundTasks):
     # 1) Verify signature
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
@@ -1822,6 +1822,14 @@ async def stripe_webhook_listener(request: Request):
                         session.add(new_key)
                         session.commit()
                         print(f"[APIKEY] Issued new key for {email} (tier={canonical_tier}, id={new_key.id})")
+                        
+                        # --- PHASE 7: EMAIL DELIVERY ---
+                        # Send the PLAINTEXT key to the user immediately.
+                        # This is the ONLY time we have access to it.
+                        from utils.emailer import send_onboarding_email
+                        background_tasks.add_task(send_onboarding_email, email, plain_key, canonical_tier)
+                        print(f"[EMAIL] Queued onboarding email for {email}")
+                        
                     else:
                         print(f"[APIKEY] Key already exists for {email} (tier={canonical_tier}) - skipping generation")
 
