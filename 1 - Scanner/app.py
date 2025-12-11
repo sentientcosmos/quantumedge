@@ -1253,8 +1253,8 @@ def _create_checkout(price_id: str, quantity: int, mode: str = "payment", metada
     session = stripe.checkout.Session.create(
         mode=mode,
         line_items=[{"price": price_id, "quantity": quantity or 1}],
-        success_url=STRIPE_SUCCESS_URL + "?status=success&session_id={CHECKOUT_SESSION_ID}",
-        cancel_url=STRIPE_CANCEL_URL + "?status=cancel",
+        success_url=STRIPE_SUCCESS_URL + "?success=true&session_id={CHECKOUT_SESSION_ID}",
+        cancel_url=STRIPE_CANCEL_URL + "?canceled=true",
         allow_promotion_codes=True,
         metadata=metadata or {},
     )
