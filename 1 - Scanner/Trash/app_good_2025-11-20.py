@@ -40,6 +40,10 @@ from fastapi import BackgroundTasks
 ANALYTICS_DB_PATH = os.getenv("ANALYTICS_DB_PATH", "analytics.db")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "dev-local-admin")  # add to .env.example / Render
 # <<< INSERT: ANALYTICS — IMPORTS & ENV (END)
+from models import Base, engine, SessionLocal, init_db
+
+# Initialize DB at startup
+init_db()
 
 
 # ------------------------------
@@ -71,8 +75,17 @@ app = FastAPI(title="QubitGrid Prompt Injection Scanner")
 
 # >>> INSERT: ANALYTICS — DB INIT (BEGIN)
 def _db_connect():
-    # create connection per-call to avoid cross-thread issues
-    return sqlite3.connect(ANALYTICS_DB_PATH, check_same_thread=False)
+    # One connection per call avoids cross-thread issues.
+    # WAL improves durability and prevents full-file locks.
+    conn = sqlite3.connect(ANALYTICS_DB_PATH, check_same_thread=False)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")     # safer, allows concurrent reads
+        conn.execute("PRAGMA synchronous=NORMAL;")   # balances durability & speed
+        conn.execute("PRAGMA foreign_keys=ON;")      # keeps relational integrity
+    except Exception:
+        pass
+    return conn
+
 
 def _analytics_init():
     with _db_connect() as conn:
@@ -206,11 +219,7 @@ def _analytics_push(evt: str, props: dict):
         # Non-fatal: never block scans because of analytics
         print("[analytics] in-memory push failed:", e)
 # >>> INSERT: ANALYTICS — HELPERS (BEGIN)
-def _mask_ip(ip: str) -> str:
-    if not ip:
-        return ""
-    parts = ip.split(".")
-    return ".".join(parts[:2] + ["x", "x"]) if len(parts) == 4 else ip[:6] + "…"
+
 
 def _sha1(text: str) -> str:
     # privacy-safe: hash of prompt content, not the raw prompt
@@ -700,75 +709,52 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str = 
 # - Input: query param ?text=...
 # - Output: JSON with flagged (bool), severity, flags[], disclaimer
 # =============================================================================
+
+# >>> PATCH: REPLACE /scan ENDPOINT (BEGIN)
+# =============================================================================
+# GET /scan — single-text scan (used by the demo UI)
+# - Input: query param ?text=...
+# - Output: JSON with flagged (bool), severity, flags[], disclaimer
+# =============================================================================
 @app.get("/scan")
-# >>> INSERT: ANALYTICS — SCAN SIGNATURE (BEGIN)
 def scan(
         request: Request,
         text: str = Query(..., description="Text to scan for prompt injection"),
         bt: BackgroundTasks = BackgroundTasks()):
-# <<< INSERT: ANALYTICS — SCAN SIGNATURE (END)
-
-# >>> INSERT: ANALYTICS — START METRICS (BEGIN)
-start_ts = time.perf_counter()
-client_ip = request.client.host if request and request.client else ""
-tier = "Free"  # TODO: later map from API key when paid users exist
-# <<< INSERT: ANALYTICS — START METRICS (END)
-
-# >>> INSERT: ANALYTICS — LOG 429 (BEGIN)
-end_ms = int((time.perf_counter() - start_ts) * 1000)
-bt.add_task(
-    _analytics_insert_row,
-    {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ip_masked": _mask_ip(client_ip),
-        "user_tier": tier,
-        "status": 429,
-        "flagged": False,
-        "latency_ms": end_ms,
-        "prompt_hash": _sha1(text or ""),
-        "report_path": None,
-    },
-)
-# <<< INSERT: ANALYTICS — LOG 429 (END)
-return JSONResponse(rl, status_code=429)
-
     """
     Single-text scan endpoint. All logic must be indented inside this function.
     We:
-      1. Measure start time
-      2. Run compiled regex scanner
-      3. Compute latency in ms and log telemetry
-      4. Attempt Slack alert (best-effort)
-      5. Return structured JSONResponse
+      1. Apply free-tier rate limit (returns 429 if exceeded)
+      2. Enforce soft input cap (head/tail slice)
+      3. Run compiled regex scanner
+      4. Log telemetry + best-effort Slack alert
+      5. Return structured JSON
     """
-   # ---------- FREE TIER RATE LIMIT (anonymous) ----------
+
+    # --- analytics timer + client info (for /admin/usage rows) ---
+    start_ts = time.perf_counter()
+    client_ip = request.client.host if request and request.client else ""
+    tier = "Free"  # TODO: later map from API key when paid users exist
+
+    # ---------- FREE TIER RATE LIMIT (anonymous) ----------
     rl = _rate_limit_check_and_increment(request)
     if rl is not None:
-        # Blocked: return a 429 with clear upgrade path.
-	# >>> INSERT: ANALYTICS — LOG 200 (BEGIN)
-end_ms = int((time.perf_counter() - start_ts) * 1000)
-bt.add_task(
-    _analytics_insert_row,
-    {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ip_masked": _mask_ip(client_ip),
-        "user_tier": tier,
-        "status": 200,
-        "flagged": bool(result.get("flagged") or (result.get("severity","").lower() in ["high","medium"])),
-        "latency_ms": end_ms,
-        "prompt_hash": _sha1(text or ""),
-        "report_path": result.get("report_path"),
-    },
-)
-# <<< INSERT: ANALYTICS — LOG 200 (END)
-
+        # 429: record the rate-limited event, then return JSON
+        end_ms = int((time.perf_counter() - start_ts) * 1000)
+        bt.add_task(_analytics_insert_row, {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "ip_masked": _mask_ip(client_ip),
+            "user_tier": tier,
+            "status": 429,
+            "flagged": False,
+            "latency_ms": end_ms,
+            "prompt_hash": _sha1(text or ""),
+            "report_path": None,
+        })
         return JSONResponse(rl, status_code=429)
     # ------------------------------------------------------
-    """
-    Single-text scan endpoint.
-    """
+
     # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
-    # Configure via env; default total slice = 50k chars (35k head + 15k tail)
     MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
     HEAD_RATIO = 0.7                                               # 70% head, 30% tail
 
@@ -777,51 +763,40 @@ bt.add_task(
     truncated = False
 
     if orig_len > MAX_INPUT_CHARS:
-        # Compute head/tail sizes
         head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
         tail_n = MAX_INPUT_CHARS - head_n
-
         head = txt[:head_n]
         tail = txt[-tail_n:] if tail_n > 0 else ""
-
-        # Join with a visible marker so UX and logs show truncation
         text = head + "\n...[TRUNCATED]...\n" + tail
         truncated = True
     else:
-        # keep as-is
         text = txt
     # ---------- END INPUT SIZE POLICY ----------
 
-    # 1) Start timer for latency (ms)
-    start = time.time()
+    # 1) Start timer for rule-engine latency (ms)
+    t0 = time.time()
 
     # 2) Run the rule scanner (compiled at startup)
-    flags, severity = scan_text_rules(text)
-
-    # Collapse duplicates and trim snippets for cleaner UX
-    raw_flags = flags
-    flags = aggregate_flags(raw_flags)
-
-
+    flags_raw, severity = scan_text_rules(text)
+    # Collapse duplicates + prettify snippets for UI
+    flags = aggregate_flags(flags_raw)
 
     # 3) Compute latency and include it in telemetry
-    latency_ms = int((time.time() - start) * 1000)
-
+    latency_ms = int((time.time() - t0) * 1000)
     try:
         log_event("scan_performed", {
             "length": len(text or ""),
             "severity": severity,
             "categories": sorted({f.get("category") for f in flags}),
             "latency_ms": latency_ms,
-            "truncated": truncated,          # NEW: soft-cap visibility
-            "original_length": orig_len,     # NEW: what the client sent
-            "scanned_length": len(text),     # NEW: what we actually scanned
-	    "flags_count": len(flags),  # number of unique rule IDs after aggregation
-	    "matches_total": sum(f.get("match_count", 1) for f in flags),
-
+            "truncated": truncated,
+            "original_length": orig_len,
+            "scanned_length": len(text),
+            "flags_count": len(flags),
+            "matches_total": sum(f.get("match_count", 1) for f in flags),
         })
     except Exception:
-        pass  # telemetry must never break the API
+        pass  # analytics should never break the API
 
     # 4) Slack alert (best-effort, non-blocking)
     try:
@@ -830,16 +805,33 @@ bt.add_task(
     except Exception:
         pass
 
-    # 5) Final response (structured)
-    return JSONResponse({
+    # 5) Build response
+    result = {
         "flagged": len(flags) > 0,
         "severity": severity,
         "flags": flags,
-        "truncated": truncated,             # surface to client
+        "truncated": truncated,
         "original_length": orig_len,
         "scanned_length": len(text),
         "disclaimer": DISCLAIMER,
+    }
+
+    # --- analytics: record successful scan row (200) ---
+    end_ms = int((time.perf_counter() - start_ts) * 1000)
+    bt.add_task(_analytics_insert_row, {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ip_masked": _mask_ip(client_ip),
+        "user_tier": tier,
+        "status": 200,
+        "flagged": bool(result.get("flagged") or (result.get("severity","").lower() in ["high","medium"])),
+        "latency_ms": end_ms,
+        "prompt_hash": _sha1(text or ""),
+        "report_path": result.get("report_path"),
     })
+
+    return JSONResponse(result)
+# <<< PATCH: REPLACE /scan ENDPOINT (END)
+
 
 @app.get("/analytics")
 def analytics_summary(days: int = 7):
@@ -1042,6 +1034,47 @@ def analytics_html():
 })();
 </script>
 </body></html>""")
+
+# >>> INSERT: ANALYTICS — ADMIN ENDPOINT (BEGIN)
+from fastapi import Header, HTTPException
+
+@app.get("/admin/usage")
+def admin_usage(limit: int = 20, x_admin_token: str = Header(None)):
+    """
+    Admin-only: return recent scan rows from SQLite.
+    Auth: send header X-Admin-Token matching ADMIN_TOKEN (from .env / Render).
+    """
+    # Simple header check
+    if ADMIN_TOKEN and x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Clamp limit 1..200
+    try:
+        n = max(1, min(int(limit), 200))
+    except Exception:
+        n = 20
+
+    with _db_connect() as conn:
+        cur = conn.execute(
+            "SELECT id, timestamp, ip_masked, user_tier, status, flagged, latency_ms "
+            "FROM scan_logs ORDER BY id DESC LIMIT ?",
+            (n,),
+        )
+        rows = [
+            {
+                "id": r[0],
+                "timestamp": r[1],
+                "ip_masked": r[2],
+                "user_tier": r[3],
+                "status": int(r[4]),
+                "flagged": bool(r[5]),
+                "latency_ms": int(r[6]) if r[6] is not None else None,
+            }
+            for r in cur.fetchall()
+        ]
+    return {"rows": rows, "count": len(rows)}
+# <<< INSERT: ANALYTICS — ADMIN ENDPOINT (END)
+
 
 # >>> SECTION A (BEGIN)
 # ================================
@@ -1287,7 +1320,152 @@ def buy_lifetime(body: CheckoutReq | None = None):
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 # <<< INSERT: STRIPE CHECKOUT ENDPOINTS (END)
 
+# >>> INSERT: STRIPE WEBHOOK SKELETON (BEGIN)
+# This route listens for Stripe's automatic event notifications (webhooks).
+# It verifies authenticity, logs the raw event to SQLite for observability,
+# and applies simple business updates to your Customer table.
 
+from fastapi import Request, HTTPException
+import stripe
+import os
+
+# Decide whether you're running locally or on Render
+ENV = os.getenv("ENV", "DEV")  # defaults to DEV if ENV not set
+if ENV.upper() == "DEV":
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LOCAL")
+else:
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LIVE")
+
+def _init_webhook_events_table():
+    """Ensure the webhook_events table exists in analytics.db."""
+    with _db_connect() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            customer_id TEXT,
+            email TEXT,
+            payload TEXT
+        );
+        """)
+        conn.commit()
+
+_init_webhook_events_table()
+
+def _log_webhook_event(event_type: str, customer_id: str | None, email: str | None, payload: dict):
+    """Insert a webhook event into analytics.db (truncated payload for safety)."""
+    try:
+        with _db_connect() as conn:
+            conn.execute(
+                "INSERT INTO webhook_events (ts, event_type, customer_id, email, payload) VALUES (?, ?, ?, ?, ?)",
+                (
+                    datetime.utcnow().isoformat() + "Z",
+                    event_type,
+                    customer_id,
+                    email,
+                    json.dumps(payload, ensure_ascii=False)[:5000],
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        print("[STRIPE LOGGING ERROR]", e)
+
+@app.post("/stripe/webhook")
+async def stripe_webhook_listener(request: Request):
+    # 1) Verify signature
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(
+            payload=payload,
+            sig_header=sig_header,
+            secret=STRIPE_WEBHOOK_SECRET,
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # 2) Basic fields
+    event_type = event.get("type", "")
+    data = (event.get("data") or {}).get("object") or {}
+
+    # 3) Log every event to SQLite for observability
+    try:
+        customer_info = {}
+        if isinstance(data, dict):
+            customer_info = data.get("customer_details") or {}
+        email = (
+            customer_info.get("email")
+            or data.get("receipt_email")
+            or (data.get("billing_details") or {}).get("email")
+            or ""
+        )
+        _log_webhook_event(
+            event_type=event_type,
+            customer_id=data.get("customer"),
+            email=email,
+            payload=event,
+        )
+        print(f"[DB] Logged Stripe event → {event_type}")
+    except Exception as e:
+        print("[STRIPE LOGGING ERROR] Could not insert event:", repr(e))
+
+    # 4) Lightweight business logic updates
+    from models import SessionLocal, Customer
+    session = SessionLocal()
+    try:
+        if event_type == "checkout.session.completed":
+            email = (data.get("customer_details") or {}).get("email")
+            stripe_customer_id = data.get("customer")
+            plan_mode = data.get("mode")  # "payment" or "subscription"
+
+            if email:
+                cust = session.query(Customer).filter_by(email=email).first()
+                if not cust:
+                    cust = Customer(
+                        email=email,
+                        tier="indie" if plan_mode == "subscription" else "lifetime",
+                        status="active",
+                        stripe_customer_id=stripe_customer_id,
+                    )
+                    session.add(cust)
+                else:
+                    cust.status = "active"
+                    cust.tier = "indie" if plan_mode == "subscription" else "lifetime"
+                    cust.stripe_customer_id = stripe_customer_id
+                session.commit()
+                print(f"[DB] Customer {email} recorded as {cust.status}")
+
+        elif event_type == "invoice.payment_failed":
+            stripe_customer_id = data.get("customer")
+            cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if cust:
+                cust.status = "payment_failed"
+                session.commit()
+                print(f"[DB] Customer {cust.email} marked payment_failed")
+
+        elif event_type == "customer.subscription.deleted":
+            stripe_customer_id = data.get("customer")
+            cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if cust:
+                cust.status = "canceled"
+                session.commit()
+                print(f"[DB] Customer {cust.email} marked canceled")
+
+        else:
+            print(f"[STRIPE WEBHOOK] Ignored event type: {event_type}")
+
+    except Exception as e:
+        session.rollback()
+        print("[STRIPE WEBHOOK ERROR]", e)
+    finally:
+        session.close()
+
+    # 5) Always acknowledge receipt
+    return {"status": "received", "event_type": event_type}
+# <<< INSERT: STRIPE WEBHOOK SKELETON (END)
 
 # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
 # Purpose:
@@ -1528,7 +1706,7 @@ def roadmap_page():
     - We return the exact contents of roadmap.html from disk.
     - Keeping it as a plain file makes it easy to edit without touching Python.
     """
-    file_path = BASE_DIR / "roadmap.html"
+    file_path = pathlib.Path(__file__).parent / "roadmap.html"
     if file_path.exists():
         # FileResponse streams the file with correct headers; read_text also works,
         # but FileResponse is efficient and avoids manual content-type handling.
@@ -1548,10 +1726,7 @@ def roadmap_page():
 APP_VERSION = "scanner-v0.3.3"
 
 
-# -----------------------------------------------------------------------------
 
-# Base directory of this app file (used to resolve roadmap.html)
-BASE_DIR = pathlib.Path(__file__).parent
 
 # --------------------- PRICING MODEL (authoritative source) -------------------
 PRICING_MODEL_PATH = pathlib.Path(__file__).parent / "PRICING_MODEL_CONTEXT.json"
@@ -1610,21 +1785,6 @@ def _free_daily_limit_from_model(default: int = 15) -> int:
         return max(1, val)
     except Exception:
         return default
-
-
-# ------------------------ FREE TIER RATE LIMIT CONFIG -------------------------
-# Pull the daily free-tier limit from the authoritative pricing model (with env override).
-# - If FREE_DAILY_LIMIT env var is set, it wins (ops control).
-# - Otherwise we read "scan_limit_per_day" from the "Free" tier in PRICING_MODEL_CONTEXT.json.
-FREE_DAILY_LIMIT = _free_daily_limit_from_model(default=15)
-
-# If you already use an API key (e.g., for paid/beta users), set it in env to bypass rate limits.
-API_KEY = os.getenv("API_KEY", "").strip()
-
-# In-memory counters for anonymous rate limit:
-# token (ip|ua-hash) -> {"date": "YYYY-MM-DD", "count": int}
-_RATE_LIMIT_BUCKET = {}
-# ----------------------------------------------------------------------------- 
 
 
 # ----------------------------------------------------------------------------- 

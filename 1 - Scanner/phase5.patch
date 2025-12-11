@@ -1,0 +1,1204 @@
+diff --git a/1 - Scanner/Trash/app.py b/1 - Scanner/Trash/app.py
+index 304a735..82c3d71 100644
+--- a/1 - Scanner/Trash/app.py	
++++ b/1 - Scanner/Trash/app.py	
+@@ -18,6 +18,28 @@ from datetime import datetime
+ from typing import List, Optional, Dict, Any, Tuple
+ from collections import Counter  # used to count severities & plans
+ from datetime import timedelta   # used to compute the N-day window
++# --- Load environment from .env/ENV for local dev ----------------------------
++# Why: when running locally, Stripe keys (and other settings) live in files.
++# In prod (e.g., Render), you set them in the dashboard and this is harmless.
++from pathlib import Path
++try:
++    from dotenv import load_dotenv  # pip install python-dotenv
++    _BASE_DIR = Path(__file__).parent
++    # Load .env if present (common convention)
++    load_dotenv(_BASE_DIR / ".env", override=False)
++    # Also load ENV (your file name) if present; does NOT overwrite already-loaded values
++    load_dotenv(_BASE_DIR / "ENV", override=False)
++except Exception as e:
++    # Don't break the app if python-dotenv is not installed
++    print("[dotenv] skip loading .env/ENV:", e)
++# ---------------------------------------------------------------------------
++# >>> INSERT: ANALYTICS — IMPORTS & ENV (BEGIN)
++import os, sqlite3, hashlib, time
++from datetime import datetime, timezone
++from fastapi import BackgroundTasks
++ANALYTICS_DB_PATH = os.getenv("ANALYTICS_DB_PATH", "analytics.db")
++ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "dev-local-admin")  # add to .env.example / Render
++# <<< INSERT: ANALYTICS — IMPORTS & ENV (END)
+ 
+ 
+ # ------------------------------
+@@ -47,7 +69,44 @@ DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certif
+ # ------------------------------
+ app = FastAPI(title="QubitGrid Prompt Injection Scanner")
+ 
++# >>> INSERT: ANALYTICS — DB INIT (BEGIN)
++def _db_connect():
++    # create connection per-call to avoid cross-thread issues
++    return sqlite3.connect(ANALYTICS_DB_PATH, check_same_thread=False)
++
++def _analytics_init():
++    with _db_connect() as conn:
++        conn.execute("""
++        CREATE TABLE IF NOT EXISTS scan_logs (
++            id INTEGER PRIMARY KEY AUTOINCREMENT,
++            timestamp TEXT NOT NULL,
++            ip_masked TEXT,
++            user_tier TEXT,
++            status TEXT NOT NULL,
++            flagged INTEGER NOT NULL,
++            latency_ms INTEGER,
++            prompt_hash TEXT,
++            report_path TEXT
++        );
++        """)
++        conn.commit()
++
++_analytics_init()
++# <<< INSERT: ANALYTICS — DB INIT (END)
++
++
+ app.mount("/static", StaticFiles(directory="static"), name="static")
++
++# >>> INSERT: RATE LIMIT BUCKET INITIALIZATION (BEGIN)
++# In-memory ledger for free-tier usage by "client" (IP + UA hash).
++# Key format: "<ip>|<ua_hash>" → Value: {"date": "YYYY-MM-DD", "count": int}
++_RATE_LIMIT_BUCKET: dict[str, dict[str, Any]] = {}
++
++# Resolve the free daily limit from environment; .env can override this.
++# Example in your .env currently sets FREE_DAILY_LIMIT=3 for testing.
++FREE_DAILY_LIMIT = int(os.getenv("FREE_DAILY_LIMIT", "15"))
++# <<< INSERT: RATE LIMIT BUCKET INITIALIZATION (END)
++
+ def _mask_ip(ip: str) -> str:
+     """
+     Privacy-friendly IP masking for logs/telemetry (keeps /24 granularity for IPv4).
+@@ -71,44 +130,14 @@ def _client_token(request: Request) -> tuple[str, str, str]:
+     token = f"{ip}|{ua_hash}"
+     return token, ip, ua_hash
+ 
+-# >>> INSERT: RATE-LIMIT HELPERS + ENFORCER (BEGIN)
+-def _rate_limit_meta(request: Request) -> dict:
+-    """
+-    Purpose
+-    -------
+-    Compute current free-tier quota for the anonymous bucket (IP + UA hash).
+-    Returns a small dict so we can expose standard headers to the client.
+-
+-    Why this matters
+-    ----------------
+-    The UI can show `Free scans left: N/15 (resets YYYY-MM-DD)`, which reduces confusion
+-    and nudges upgrades once the cap is hit.
+-    """
+-    token, _, _ = _client_token(request)
+-    today = datetime.utcnow().strftime("%Y-%m-%d")
+-    entry = _RATE_LIMIT_BUCKET.get(token) or {"date": today, "count": 0}
+-    remaining = max(0, FREE_DAILY_LIMIT - (entry["count"] if entry.get("date") == today else 0))
+-    return {
+-        "limit": FREE_DAILY_LIMIT,
+-        "remaining": remaining,
+-        "reset_utc_date": (datetime.utcnow().date() + timedelta(days=1)).isoformat(),
+-    }
+-
+-
+ def _rate_limit_check_and_increment(request: Request) -> dict | None:
+     """
+-    Purpose
+-    -------
+-    Enforce the anonymous FREE_TIER daily cap for GET /scan.
+-
+-    Behavior
+-    --------
+-    - If an API key is supplied (paid user), we SKIP limits.
+-    - Otherwise, we bucket by (IP + hashed User-Agent) per UTC day.
+-    - If over limit, we return a JSON payload that the caller can send with 429.
+-    - If under limit, we increment the counter and return None (meaning: allowed).
++    Enforce the FREE_DAILY_LIMIT for anonymous users.
++    - If a valid API key is present (Authorization: Bearer <API_KEY>), we SKIP the limit.
++    - Otherwise we count this request against today's bucket for (IP+UA).
++    Returns None if allowed; returns a dict payload if blocked (429).
+     """
+-    # Bypass for paid/API-key users
++    # Bypass for paid/API-key users (simple starter policy)
+     if API_KEY and (request.headers.get("authorization", "") == f"Bearer {API_KEY}"):
+         return None
+ 
+@@ -117,11 +146,13 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
+ 
+     entry = _RATE_LIMIT_BUCKET.get(token)
+     if not entry or entry.get("date") != today:
++        # First request today (or day rolled over) -> reset counter
+         entry = {"date": today, "count": 0}
+         _RATE_LIMIT_BUCKET[token] = entry
+ 
++    # If already at/over limit -> block
+     if entry["count"] >= FREE_DAILY_LIMIT:
+-        # Log a non-fatal analytics event
++        # Optional: log the event (goes to your in-memory analytics buffer too)
+         try:
+             log_event("rate_limited", {
+                 "ip_masked": _mask_ip(ip),
+@@ -132,14 +163,16 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
+         except Exception:
+             pass
+ 
++        # Compute a simple reset hint (next midnight UTC)
++        tomorrow = (datetime.utcnow().date() + timedelta(days=1)).isoformat()
+         return {
+             "error": "Free tier daily limit reached.",
+             "limit": FREE_DAILY_LIMIT,
+-            "reset_utc_date": (datetime.utcnow().date() + timedelta(days=1)).isoformat(),
+-            "upgrade": "/roadmap",
++            "reset_utc_date": tomorrow,
++            "upgrade": "/roadmap"
+         }
+ 
+-    # Allowed — consume one unit
++    # Otherwise consume one unit and allow
+     entry["count"] += 1
+     try:
+         log_event("rate_limit_increment", {
+@@ -151,7 +184,6 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
+     except Exception:
+         pass
+     return None
+-# <<< INSERT: RATE-LIMIT HELPERS + ENFORCER (END)
+ 
+ # ---------------------------------------------------------------------
+ # In-memory telemetry ring buffer (keeps recent events; survives process lifetime)
+@@ -173,6 +205,36 @@ def _analytics_push(evt: str, props: dict):
+     except Exception as e:
+         # Non-fatal: never block scans because of analytics
+         print("[analytics] in-memory push failed:", e)
++# >>> INSERT: ANALYTICS — HELPERS (BEGIN)
++def _mask_ip(ip: str) -> str:
++    if not ip:
++        return ""
++    parts = ip.split(".")
++    return ".".join(parts[:2] + ["x", "x"]) if len(parts) == 4 else ip[:6] + "…"
++
++def _sha1(text: str) -> str:
++    # privacy-safe: hash of prompt content, not the raw prompt
++    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()
++
++def _analytics_insert_row(row: dict):
++    with _db_connect() as conn:
++        conn.execute(
++            """INSERT INTO scan_logs
++               (timestamp, ip_masked, user_tier, status, flagged, latency_ms, prompt_hash, report_path)
++               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
++            (
++                row["timestamp"],
++                row.get("ip_masked",""),
++                row.get("user_tier","Free"),
++                str(row["status"]),
++                1 if row.get("flagged") else 0,
++                row.get("latency_ms"),
++                row.get("prompt_hash"),
++                row.get("report_path"),
++            ),
++        )
++        conn.commit()
++# <<< INSERT: ANALYTICS — HELPERS (END)
+ 
+ 
+ 
+@@ -638,107 +700,146 @@ def send_slack_alert(text: str, severity: str, flags: List[dict], origin: str =
+ # - Input: query param ?text=...
+ # - Output: JSON with flagged (bool), severity, flags[], disclaimer
+ # =============================================================================
+-
+ @app.get("/scan")
++# >>> INSERT: ANALYTICS — SCAN SIGNATURE (BEGIN)
+ def scan(
+-    request: Request,
+-    text: str = Query(..., description="Text to scan for prompt injection"),
+-):
++        request: Request,
++        text: str = Query(..., description="Text to scan for prompt injection"),
++        bt: BackgroundTasks = BackgroundTasks()):
++# <<< INSERT: ANALYTICS — SCAN SIGNATURE (END)
++
++# >>> INSERT: ANALYTICS — START METRICS (BEGIN)
++start_ts = time.perf_counter()
++client_ip = request.client.host if request and request.client else ""
++tier = "Free"  # TODO: later map from API key when paid users exist
++# <<< INSERT: ANALYTICS — START METRICS (END)
++
++# >>> INSERT: ANALYTICS — LOG 429 (BEGIN)
++end_ms = int((time.perf_counter() - start_ts) * 1000)
++bt.add_task(
++    _analytics_insert_row,
++    {
++        "timestamp": datetime.now(timezone.utc).isoformat(),
++        "ip_masked": _mask_ip(client_ip),
++        "user_tier": tier,
++        "status": 429,
++        "flagged": False,
++        "latency_ms": end_ms,
++        "prompt_hash": _sha1(text or ""),
++        "report_path": None,
++    },
++)
++# <<< INSERT: ANALYTICS — LOG 429 (END)
++return JSONResponse(rl, status_code=429)
++
+     """
+-    Single-text scan endpoint.
+-    Performs rate limiting, input truncation, rule scanning, telemetry, and alerting.
+-    Everything below is indented exactly 4 spaces to be inside this function.
++    Single-text scan endpoint. All logic must be indented inside this function.
++    We:
++      1. Measure start time
++      2. Run compiled regex scanner
++      3. Compute latency in ms and log telemetry
++      4. Attempt Slack alert (best-effort)
++      5. Return structured JSONResponse
+     """
+-
+-    # ---------- FREE TIER RATE LIMIT (anonymous) ----------
++   # ---------- FREE TIER RATE LIMIT (anonymous) ----------
+     rl = _rate_limit_check_and_increment(request)
+     if rl is not None:
+-        meta = _rate_limit_meta(request)
+-        return JSONResponse(
+-            rl,
+-            status_code=429,
+-            headers={
+-                "X-RateLimit-Limit": str(meta["limit"]),
+-                "X-RateLimit-Remaining": "0",
+-                "X-RateLimit-Reset": meta["reset_utc_date"],
+-            },
+-        )
+-
++        # Blocked: return a 429 with clear upgrade path.
++	# >>> INSERT: ANALYTICS — LOG 200 (BEGIN)
++end_ms = int((time.perf_counter() - start_ts) * 1000)
++bt.add_task(
++    _analytics_insert_row,
++    {
++        "timestamp": datetime.now(timezone.utc).isoformat(),
++        "ip_masked": _mask_ip(client_ip),
++        "user_tier": tier,
++        "status": 200,
++        "flagged": bool(result.get("flagged") or (result.get("severity","").lower() in ["high","medium"])),
++        "latency_ms": end_ms,
++        "prompt_hash": _sha1(text or ""),
++        "report_path": result.get("report_path"),
++    },
++)
++# <<< INSERT: ANALYTICS — LOG 200 (END)
++
++        return JSONResponse(rl, status_code=429)
++    # ------------------------------------------------------
++    """
++    Single-text scan endpoint.
++    """
+     # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
+-    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))  # total slice size
+-    HEAD_RATIO = 0.7  # 70% head, 30% tail
++    # Configure via env; default total slice = 50k chars (35k head + 15k tail)
++    MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
++    HEAD_RATIO = 0.7                                               # 70% head, 30% tail
+ 
+     txt = text or ""
+     orig_len = len(txt)
+     truncated = False
+ 
+     if orig_len > MAX_INPUT_CHARS:
++        # Compute head/tail sizes
+         head_n = int(MAX_INPUT_CHARS * HEAD_RATIO)
+         tail_n = MAX_INPUT_CHARS - head_n
++
+         head = txt[:head_n]
+         tail = txt[-tail_n:] if tail_n > 0 else ""
++
++        # Join with a visible marker so UX and logs show truncation
+         text = head + "\n...[TRUNCATED]...\n" + tail
+         truncated = True
+     else:
++        # keep as-is
+         text = txt
+     # ---------- END INPUT SIZE POLICY ----------
+ 
+-    # ---------- 1) Start timer for latency (ms) ----------
++    # 1) Start timer for latency (ms)
+     start = time.time()
+ 
+-    # ---------- 2) Run the rule scanner (compiled at startup) ----------
++    # 2) Run the rule scanner (compiled at startup)
+     flags, severity = scan_text_rules(text)
+ 
+     # Collapse duplicates and trim snippets for cleaner UX
+     raw_flags = flags
+     flags = aggregate_flags(raw_flags)
+ 
+-    # ---------- 3) Compute latency and include it in telemetry ----------
++
++
++    # 3) Compute latency and include it in telemetry
+     latency_ms = int((time.time() - start) * 1000)
+ 
+     try:
+-        log_event(
+-            "scan_performed",
+-            {
+-                "length": len(text or ""),
+-                "severity": severity,
+-                "categories": sorted({f.get("category") for f in flags}),
+-                "latency_ms": latency_ms,
+-                "truncated": truncated,
+-                "original_length": orig_len,
+-                "scanned_length": len(text),
+-                "flags_count": len(flags),
+-                "matches_total": sum(f.get("match_count", 1) for f in flags),
+-            },
+-        )
++        log_event("scan_performed", {
++            "length": len(text or ""),
++            "severity": severity,
++            "categories": sorted({f.get("category") for f in flags}),
++            "latency_ms": latency_ms,
++            "truncated": truncated,          # NEW: soft-cap visibility
++            "original_length": orig_len,     # NEW: what the client sent
++            "scanned_length": len(text),     # NEW: what we actually scanned
++	    "flags_count": len(flags),  # number of unique rule IDs after aggregation
++	    "matches_total": sum(f.get("match_count", 1) for f in flags),
++
++        })
+     except Exception:
+         pass  # telemetry must never break the API
+ 
+-    # ---------- 4) Slack alert (best-effort, non-blocking) ----------
++    # 4) Slack alert (best-effort, non-blocking)
+     try:
+         if flags and _should_alert(severity):
+             send_slack_alert(text=text, severity=severity, flags=flags, origin="scan")
+     except Exception:
+         pass
+ 
+-    # ---------- 5) Final response (structured) ----------
+-    meta = _rate_limit_meta(request)
+-    return JSONResponse(
+-        {
+-            "flagged": len(flags) > 0,
+-            "severity": severity,
+-            "flags": flags,
+-            "truncated": truncated,
+-            "original_length": orig_len,
+-            "scanned_length": len(text),
+-            "disclaimer": DISCLAIMER,
+-        },
+-        headers={
+-            "X-RateLimit-Limit": str(meta["limit"]),
+-            "X-RateLimit-Remaining": str(meta["remaining"]),
+-            "X-RateLimit-Reset": meta["reset_utc_date"],
+-        },
+-    )
++    # 5) Final response (structured)
++    return JSONResponse({
++        "flagged": len(flags) > 0,
++        "severity": severity,
++        "flags": flags,
++        "truncated": truncated,             # surface to client
++        "original_length": orig_len,
++        "scanned_length": len(text),
++        "disclaimer": DISCLAIMER,
++    })
+ 
+ @app.get("/analytics")
+ def analytics_summary(days: int = 7):
+@@ -1084,10 +1185,12 @@ import stripe
+ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
+ STRIPE_PRICE_INDIE_ONE = os.getenv("STRIPE_PRICE_INDIE_ONE", "").strip()   # one-time $19.99
+ STRIPE_PRICE_INDIE_SUB = os.getenv("STRIPE_PRICE_INDIE_SUB", "").strip()   # monthly $9.99
++STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "").strip()               # monthly $29.99
+ STRIPE_PRICE_LIFETIME  = os.getenv("STRIPE_PRICE_LIFETIME", "").strip()    # one-time $199
+ STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "http://127.0.0.1:8000/pricing").strip()
+ STRIPE_CANCEL_URL  = os.getenv("STRIPE_CANCEL_URL",  "http://127.0.0.1:8000/pricing").strip()
+ 
++
+ if STRIPE_SECRET_KEY:
+     stripe.api_key = STRIPE_SECRET_KEY
+ 
+@@ -1149,6 +1252,29 @@ def buy_indie_sub(body: CheckoutReq | None = None):
+     except Exception as e:
+         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+ 
++# ==============================================
++# STRIPE — PRO PLAN CHECKOUT
++# ==============================================
++@app.post("/buy/pro")
++async def buy_pro():
++    """Create Stripe checkout for Pro plan."""
++    try:
++        session = stripe.checkout.Session.create(
++            payment_method_types=["card"],
++            mode="subscription",
++            line_items=[{
++                "price": STRIPE_PRICE_PRO,  # make sure this exists in your .env
++                "quantity": 1,
++            }],
++            success_url=STRIPE_SUCCESS_URL,
++            cancel_url=STRIPE_CANCEL_URL,
++        )
++        return {"url": session.url}
++    except Exception as e:
++        return JSONResponse({"detail": str(e)}, status_code=400)
++
++
++
+ # Lifetime ONE-TIME ($199)
+ @app.post("/buy/lifetime")
+ def buy_lifetime(body: CheckoutReq | None = None):
+@@ -1162,6 +1288,7 @@ def buy_lifetime(body: CheckoutReq | None = None):
+ # <<< INSERT: STRIPE CHECKOUT ENDPOINTS (END)
+ 
+ 
++
+ # -------------------------- BUY PAGES (TEST CHECKOUT) --------------------------
+ # Purpose:
+ # - Let interested users leave their email for two plans WITHOUT taking payment.
+diff --git a/1 - Scanner/Trash/index.html b/1 - Scanner/Trash/index.html
+index 548bd28..bd66aad 100644
+--- a/1 - Scanner/Trash/index.html	
++++ b/1 - Scanner/Trash/index.html	
+@@ -128,52 +128,45 @@
+   </div>
+ 
+   <!-- Indie Plan -->
+-  <div class="plan-card indie">
+-    <h5>💻 Indie</h5>
+-    <p class="price">$9<span> /mo</span></p>
+-    <ul>
+-      <li>✅ Automate prompt scans via API key</li>
+-      <li>✅ Watermarked PDF reports for clients</li>
+-    </ul>
+-    <button
+-      class="btn-primary"
+-      onclick="window.location.href='/buy/indie-sub'"
+-    >
+-      Buy Indie
+-    </button>
+-  </div>
++<div class="plan-card indie">
++  <h5>💻 Indie</h5>
++  <p class="price">$19.99<span> /mo</span></p>
++  <ul>
++    <li>✅ Automate prompt scans via API key</li>
++    <li>✅ Watermarked PDF reports for clients</li>
++  </ul>
++  <!-- >>> Replace this button -->
++  <button class="btn-primary" data-checkout="indie">Buy Indie</button>
++  <!-- <<< -->
++</div>
+ 
+-  <!-- Pro Plan -->
+-  <div class="plan-card pro">
+-    <h5>⚙️ Pro</h5>
+-    <p class="price">$29<span> /mo</span></p>
+-    <ul>
+-      <li>✅ Priority queue &amp; extended analytics</li>
+-      <li>✅ Audit-ready PDF summaries (no watermark)</li>
+-    </ul>
+-    <button
+-      class="btn-primary"
+-      onclick="window.location.href='/buy/pro'"
+-    >
+-      Buy Pro
+-    </button>
+-  </div>
++<!-- Pro Plan -->
++<div class="plan-card pro">
++  <h5>⚙️ Pro</h5>
++  <p class="price">$29<span> /mo</span></p>
++  <ul>
++    <li>✅ Priority queue &amp; extended analytics</li>
++    <li>✅ Audit-ready PDF summaries (no watermark)</li>
++  </ul>
++  <!-- >>> Replace this button -->
++  <button class="btn-primary" data-checkout="pro">Buy Pro</button>
++  <!-- <<< -->
++</div>
+ 
+-  <!-- Lifetime Plan -->
+-  <div class="plan-card lifetime">
+-    <h5>🏆 Lifetime</h5>
+-    <p class="price">$199<span> one-time</span></p>
+-    <ul>
+-      <li>✅ Unlimited Pro features for life</li>
+-      <li>✅ Founding-tier access to future modules</li>
+-    </ul>
+-    <button
+-      class="btn-primary"
+-      onclick="window.location.href='/buy/lifetime'"
+-    >
+-      Get Lifetime Access
+-    </button>
+-  </div>
++<!-- Lifetime Plan -->
++<div class="plan-card lifetime">
++  <h5>🏆 Lifetime</h5>
++  <p class="price">$199<span> one-time</span></p>
++  <ul>
++    <li>✅ Unlimited Pro features for life</li>
++    <li>✅ Founding-tier access to future modules</li>
++  </ul>
++  <!-- >>> Replace this button -->
++  <button class="btn-primary" data-checkout="lifetime">
++    Get Lifetime Access
++  </button>
++  <!-- <<< -->
++</div>
+ </div>
+ <!-- <<< INSERT: PRICING & UPGRADES (END) -->
+ 
+@@ -290,63 +283,31 @@
+         resultSummary.textContent = "Scanning…";
+ 
+         try {
+-            const resp = await fetch(`/scan?text=${encodeURIComponent(text)}`);
+-	const data = await resp.json();
+-	showResultsPanel(data);
+-
+-        } catch (err) {
+-            resultSummary.textContent = "Scan failed — please try again.";
+-            showBanner("Scan failed — see console for details.", false);
+-            console.error(err);
+-        }
+-    });
+-<!-- >>> INSERT: FREE SCAN LIMITER BANNER HANDLER (BEGIN) -->
+-// Helper: show banner with message + type ("info" | "warning" | "error")
+-function showBanner(msg, type = "info") {
+-  const banner = document.getElementById("statusBanner");
+-  banner.textContent = msg;
+-  banner.classList.remove("hidden");
+-  banner.className = `banner ${type}`;
+-  setTimeout(() => banner.classList.add("hidden"), 6000);
++           // >>> FIX: handle 429 and other errors correctly (BEGIN)
++const resp = await fetch(`/scan?text=${encodeURIComponent(text)}`);
++const data = await resp.json();
++
++// Detect 429 Too Many Requests (free-tier limit) or other non-OK responses
++if (resp.status === 429 && data && data.error) {
++  // show friendly banner and result summary
++  showBanner(`⚠️ ${data.error} (limit: ${data.limit}/day). Reset: ${data.reset_utc_date}`, "warning");
++  severityBadge.textContent = "Limit Reached";
++  severityBadge.className = "severity-badge high";
++  resultSummary.textContent = data.error;
++  resultJSON.textContent = JSON.stringify(data, null, 2);
++  // stop normal success flow
++  return;
+ }
+ 
+-// Wrap fetch call for Scan with 429 awareness
+-async function runScanWithLimit(text) {
+-  try {
+-    const res = await fetch(`/scan?text=${encodeURIComponent(text)}`);
+-    const data = await res.json();
+-
+-    if (!res.ok) {
+-      // Handle rate-limit or other API errors
+-      if (res.status === 429 && data.error) {
+-        const msg = `⚠️ ${data.error} (${data.limit}/day). Reset: ${data.reset_utc_date}. 
+-        Upgrade → ${data.upgrade}`;
+-        showBanner(msg, "warning");
+-      } else {
+-        showBanner(`❌ Scan failed: ${data.error || res.statusText}`, "error");
+-      }
+-      return;
+-    }
+-
+-    // Normal success flow
+-    renderScanResults(data);
+-  } catch (err) {
+-    console.error("Scan request failed:", err);
+-    showBanner("Network error during scan.", "error");
+-  }
++if (!resp.ok) {
++  // other errors (500, network, etc.)
++  showBanner(`❌ Scan failed — see console for details.`, "error");
++  console.error("Scan error response:", resp.status, data);
++  return;
+ }
++// <<< FIX: handle 429 and other errors correctly (END)
++
+ 
+-// Override existing Scan button behavior
+-btnScan.removeEventListener("click", existingScanHandler || (() => {})); // if old listener defined
+-btnScan.addEventListener("click", () => {
+-  const text = input.value.trim();
+-  if (!text) {
+-    showBanner("Please enter text to scan.", "info");
+-    return;
+-  }
+-  runScanWithLimit(text);
+-});
+-<!-- <<< INSERT: FREE SCAN LIMITER BANNER HANDLER (END) -->
+ 
+ 
+       // ================================
+@@ -451,6 +412,48 @@ document.addEventListener("keydown", (e) => {
+ 
+ 
+ // <<< ENHANCED RESULTS PANEL LOGIC (END)
++/* ============================================================
++   STRIPE CHECKOUT REDIRECT LOGIC (same as roadmap)
++============================================================ */
++async function startCheckout(endpoint){
++  const btn=document.activeElement;
++  try{
++    if(btn&&btn.tagName==='BUTTON')btn.disabled=true;
++    const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
++    if(!res.ok){
++      const err=await res.json().catch(()=>({}));
++      alert(err?.detail||`Checkout failed (${res.status})`);
++      if(btn)btn.disabled=false;return;
++    }
++    const data=await res.json();
++    if(!data?.url){alert('Checkout failed: no URL returned.');if(btn)btn.disabled=false;return;}
++    window.location.href=data.url;
++  }catch(e){
++    alert('Network error starting checkout. Please try again.');
++    if(btn)btn.disabled=false;
++  }
++}
++
++document.querySelectorAll('[data-checkout]').forEach(el=>{
++  const plan=el.getAttribute('data-checkout');
++  let endpoint='';
++  if(plan==='indie') endpoint='/buy/indie';
++  else if(plan==='pro') endpoint='/buy/pro';
++  else if(plan==='lifetime') endpoint='/buy/lifetime';
++  if(endpoint) el.addEventListener('click',()=>startCheckout(endpoint));
++});
++
++// ================================
++// Stripe return banner handler
++// ================================
++window.addEventListener("DOMContentLoaded", () => {
++  const params = new URLSearchParams(window.location.search);
++  if (params.has("success")) {
++    showBanner("Payment successful ✔️", true);
++  } else if (params.has("canceled")) {
++    showBanner("Payment canceled ❌", false);
++  }
++});
+ 
+     </script>
+   </body>
+diff --git a/1 - Scanner/app.py b/1 - Scanner/app.py
+index efca7e4..d7305cd 100644
+--- a/1 - Scanner/app.py	
++++ b/1 - Scanner/app.py	
+@@ -168,6 +168,30 @@ def _client_token(request: Request) -> tuple[str, str, str]:
+ # Key format: "key_hash" -> Value: {"date": "YYYY-MM-DD", "count": int}
+ _PAID_LIMIT_BUCKET: dict[str, dict[str, Any]] = {}
+ 
++def _get_paid_usage_stats(key_hash: str, plan_name: str) -> dict:
++    """
++    Read-only fetch of usage stats for the dashboard.
++    Does NOT increment counters.
++    """
++    # 1. Resolve limit
++    tier_def = _tier_by_name(plan_name)
++    limit = int(tier_def.get("scan_limit_per_day", FREE_DAILY_LIMIT))
++    
++    # 2. Check bucket
++    today = datetime.utcnow().strftime("%Y-%m-%d")
++    entry = _PAID_LIMIT_BUCKET.get(key_hash)
++    
++    count = 0
++    if entry and entry.get("date") == today:
++        count = entry["count"]
++        
++    return {
++        "limit": limit,
++        "count": count,
++        "remaining": max(0, limit - count),
++        "reset_utc": (datetime.utcnow().date() + timedelta(days=1)).isoformat()
++    }
++
+ def _check_paid_limit(key_hash: str, plan_name: str) -> Tuple[bool, int, int]:
+     """
+     Check if the API key has exceeded its daily limit based on the plan.
+@@ -250,6 +274,50 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
+         pass
+     return None
+ 
++def _authenticate_view_only(request: Request) -> Tuple[dict | None, dict]:
++    """
++    Authentication for Dashboard (View-Only).
++    - Checks API Key against DB.
++    - Does NOT check or increment rate limits.
++    - Does NOT allow Admin Token (User Dashboard is for Users).
++    
++    Returns:
++      (error_dict, user_context)
++    """
++    auth_header = request.headers.get("authorization", "").strip()
++    if not auth_header.startswith("Bearer "):
++         return {"error": "Missing API Key", "status_code": 401}, None
++
++    token = auth_header[len("Bearer "):].strip()
++    
++    # Explicitly disallow Admin Token for this user view
++    if API_KEY and token == API_KEY:
++        return {"error": "Admin token not allowed here. Use real user key.", "status_code": 403}, None
++
++    from models import SessionLocal, APIKey, Customer
++    
++    params_hash = APIKey.hash_key(token)
++    session = SessionLocal()
++    try:
++        api_key_record = session.query(APIKey).filter_by(key_hash=params_hash, active=True).first()
++        if not api_key_record:
++             return {"error": "Invalid or inactive API key.", "status_code": 401}, None
++             
++        # Fetch detailed status from Customer table
++        customer = session.query(Customer).filter_by(email=api_key_record.user_email).first()
++        status = customer.status if customer else "unknown"
++
++        ctx = {
++            "email": api_key_record.user_email,
++            "plan": api_key_record.plan,
++            "key_hash": params_hash,
++            "masked_key": f"qg_{token[:4]}...{token[-4:]}" if len(token) > 10 else "qg_masked",
++            "status": status
++        }
++        return None, ctx
++    finally:
++        session.close()
++
+ def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str, dict]:
+     """
+     Unified Auth & Rate Limit Enforcer.
+@@ -2110,6 +2178,88 @@ def _free_daily_limit_from_model(default: int = 15) -> int:
+ 
+ 
+ 
++
++# >>> INSERT: USER DASHBOARD (BEGIN)
++@app.get("/dashboard", response_class=HTMLResponse)
++def user_dashboard(request: Request):
++    """
++    User Dashboard: View API Key stats, tier, and billing status.
++    Auth: Bearer <API_KEY>
++    """
++    error, ctx = _authenticate_view_only(request)
++    if error:
++        # Simple error page
++        return HTMLResponse(f"""
++        <html><body style='background:#0b1220;color:#e8eef6;font-family:sans-serif;padding:40px;text-align:center'>
++        <h2>Access Denied</h2>
++        <p>{error.get('error')}</p>
++        </body></html>
++        """, status_code=error.get("status_code", 401))
++    
++    # Fetch usage stats (no side-effects)
++    stats = _get_paid_usage_stats(ctx["key_hash"], ctx["plan"])
++    
++    # Render Dashboard
++    return HTMLResponse(f"""<!doctype html>
++<html lang='en'>
++<head>
++<meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
++<title>QubitGrid™ — Dashboard</title>
++<style>
++  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--success:#10b981;--danger:#ef4444}}
++  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}}
++  .wrap{{max-width:600px;margin:40px auto;padding:0 16px}}
++  .card{{background:#111827;border:1px solid var(--line);border-radius:14px;padding:24px}}
++  h1{{margin:0 0 4px;font-size:20px}} h2{{margin:0 0 16px;font-size:14px;color:var(--muted);font-weight:400}}
++  .stat-row{{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:12px 0}}
++  .stat-row:last-child{{border-bottom:none}}
++  .label{{color:var(--muted);font-size:13px}}
++  .value{{font-weight:600;font-size:14px}}
++  .badge{{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;text-transform:uppercase}}
++  .status-active{{background:rgba(16,185,129,0.2);color:var(--success)}}
++  .status-inactive{{background:rgba(239,68,68,0.2);color:var(--danger)}}
++  .key-box{{background:#0d1116;border:1px solid var(--line);padding:10px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:20px;word-break:break-all;color:var(--accent)}}
++  .links{{margin-top:20px;text-align:center;font-size:13px}}
++  a{{color:var(--muted)}}
++</style>
++</head>
++<body>
++  <div class="wrap">
++    <div class="card">
++      <h1>My Subscription</h1>
++      <h2>{ctx['email']}</h2>
++      
++      <div class="key-box">{ctx['masked_key']}</div>
++      
++      <div class="stat-row">
++        <span class="label">Plan Tier</span>
++        <span class="value">{ctx['plan']}</span>
++      </div>
++      <div class="stat-row">
++        <span class="label">Status</span>
++        <span class="value"><span class="badge status-{ctx['status']}">{ctx['status']}</span></span>
++      </div>
++      <div class="stat-row">
++        <span class="label">Daily Usage</span>
++        <span class="value">{stats['count']} / {stats['limit']} scans</span>
++      </div>
++      <div class="stat-row">
++        <span class="label">Remaining Today</span>
++        <span class="value">{stats['remaining']}</span>
++      </div>
++      <div class="stat-row">
++        <span class="label">Resets At</span>
++        <span class="value">{stats['reset_utc']} UTC</span>
++      </div>
++    </div>
++    <div class="links">
++       <a href="/">Home</a> • <a href="/roadmap">Roadmap</a>
++    </div>
++  </div>
++</body>
++</html>""")
++# <<< INSERT: USER DASHBOARD (END)
++
+ @app.get("/__version", response_class=PlainTextResponse)
+ def version():
+     return f"{APP_VERSION} | FastAPI {fastapi_version}"
+diff --git a/1 - Scanner/verify_admin_analytics.py b/1 - Scanner/verify_admin_analytics.py
+index 176653f..0952316 100644
+--- a/1 - Scanner/verify_admin_analytics.py	
++++ b/1 - Scanner/verify_admin_analytics.py	
+@@ -1,129 +1,90 @@
+ import os
+-import secrets
+-import time
+-from datetime import datetime, timedelta
++import sys
+ from fastapi.testclient import TestClient
+-from app import app, _analytics_init, _db_connect
+-from models import init_db, SessionLocal, APIKey, Customer
++from app import app
+ 
++# Initialize TestClient
+ client = TestClient(app)
+ 
+-def setup_db_and_keys():
+-    # Force schema update
+-    _analytics_init()
++def run_smoke_tests():
++    print("--- Starting Admin Analytics Smoke Tests ---\n")
+     
+-    # Clean previous test data from SQLite
+-    with _db_connect() as conn:
+-        conn.execute("DELETE FROM scan_logs WHERE customer_email LIKE 'test_admin_%'")
+-        conn.commit()
+-        
+-    session = SessionLocal()
+-    # Clean up models
+-    session.query(APIKey).filter(APIKey.user_email.like("test_admin_%")).delete()
+-    session.query(Customer).filter(Customer.email.like("test_admin_%")).delete()
+-    session.commit()
++    # Defaults
++    ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "dev-local-admin")
+     
+-    # Create Indie Key
+-    indie_raw = "qg_" + secrets.token_urlsafe(32)
+-    indie_key = APIKey(
+-        user_email="test_admin_indie@example.com",
+-        key_hash=APIKey.hash_key(indie_raw),
+-        plan="Indie",
+-        active=True
+-    )
+-    
+-    # Create Pro Key
+-    pro_raw = "qg_" + secrets.token_urlsafe(32)
+-    pro_key = APIKey(
+-        user_email="test_admin_pro@example.com",
+-        key_hash=APIKey.hash_key(pro_raw),
+-        plan="Pro",
+-        active=True
+-    )
+-    
+-    session.add_all([indie_key, pro_key])
+-    session.commit()
+-    session.close()
+-    
+-    return indie_raw, pro_raw
++    # Test 1: GET /health
++    try:
++        resp = client.get("/health")
++        if resp.status_code == 200 and resp.json().get("ok") is True:
++            print("✅ Test 1 /health passed")
++        else:
++            print(f"❌ Test 1 /health failed: Status {resp.status_code}, Body {resp.text}")
++    except Exception as e:
++        print(f"❌ Test 1 /health failed with exception: {e}")
+ 
+-def run_tests():
+-    print("--- Starting Admin Analytics verification ---")
+-    indie_token, pro_token = setup_db_and_keys()
+-    admin_token = os.getenv("ADMIN_TOKEN", "dev-local-admin")
+-    
+-    # 1. Generate Traffic
+-    # Free
+-    client.get("/scan?text=free_scan_1")
+-    # Admin via Env
+-    env_key = os.getenv("API_KEY")
+-    if env_key:
+-        client.get("/scan?text=admin_scan_1", headers={"Authorization": f"Bearer {env_key}"})
+-    # Paid Indie
+-    client.get("/scan?text=indie_scan_1", headers={"Authorization": f"Bearer {indie_token}"})
+-    client.get("/scan?text=indie_scan_2", headers={"Authorization": f"Bearer {indie_token}"})
+-    # Paid Pro
+-    client.get("/scan?text=pro_scan_1", headers={"Authorization": f"Bearer {pro_token}"})
+-    
+-    # Sleep briefly to ensure async write
+-    time.sleep(1.0)
+-    
+-    # 2. Verify /admin/usage (Generic)
+-    print("\n[Test] /admin/usage")
+-    resp = client.get("/admin/usage", headers={"X-Admin-Token": admin_token})
+-    if resp.status_code == 200:
+-        data = resp.json()
+-        print(f"PASS: Got {data['count']} rows")
+-    else:
+-        print(f"FAIL: {resp.status_code}")
++    # Test 2: Trigger a few scans (Free tier)
++    try:
++        scans_ok = True
++        for i in range(3):
++            resp = client.get(f"/scan?text=smoke_test_{i}")
++            if resp.status_code != 200:
++                print(f"❌ Test 2 /scan iteration {i} failed: Status {resp.status_code}")
++                scans_ok = False
++                break
++            data = resp.json()
++            if "severity" not in data or "flags" not in data:
++                print(f"❌ Test 2 /scan iteration {i} failed: Missing keys in {data}")
++                scans_ok = False
++                break
++        if scans_ok:
++            print("✅ Test 2 /scan (x3) passed")
++    except Exception as e:
++        print(f"❌ Test 2 /scan failed with exception: {e}")
+ 
+-    # 3. Verify /admin/key-usage
+-    print("\n[Test] /admin/key-usage (Indie Key)")
+-    # Get hash prefix from token
+-    # We need to replicate the hashing logic validly or just query DB to get prefix
+-    from models import APIKey
+-    indie_hash = APIKey.hash_key(indie_token)
+-    prefix = indie_hash[:8]
+-    
+-    resp = client.get(f"/admin/key-usage?prefix={prefix}", headers={"X-Admin-Token": admin_token})
+-    if resp.status_code == 200:
+-        data = resp.json()
+-        print(f"PASS: Stats: {data['total_scans']} scans (Expected ~2)")
+-        if data['total_scans'] >= 2 and data['by_tier'].get('Indie', 0) >= 2:
+-             print("PASS: Tier counts correct")
++    # Test 3: Admin usage endpoint
++    try:
++        resp = client.get("/admin/usage?limit=5", headers={"X-Admin-Token": ADMIN_TOKEN})
++        if resp.status_code == 200:
++            data = resp.json()
++            if "rows" in data and isinstance(data["rows"], list):
++                print("✅ Test 3 /admin/usage passed")
++            else:
++                print(f"❌ Test 3 /admin/usage failed: Missing 'rows' array in {data}")
+         else:
+-             print(f"FAIL: Data mismatch {data}")
+-    else:
+-        print(f"FAIL: {resp.status_code}")
++            print(f"❌ Test 3 /admin/usage failed: Status {resp.status_code}")
++    except Exception as e:
++        print(f"❌ Test 3 /admin/usage failed with exception: {e}")
+ 
+-    # 4. Verify /admin/customer-usage
+-    print("\n[Test] /admin/customer-usage (test_admin_indie@example.com)")
+-    resp = client.get("/admin/customer-usage?email=test_admin_indie@example.com", headers={"X-Admin-Token": admin_token})
+-    if resp.status_code == 200:
+-        data = resp.json()
+-        print(f"PASS: Stats: {data['total_scans']} scans")
+-        if "Indie" in data['by_tier']:
+-            print("PASS: Correct Tier")
++    # Test 4: Public analytics
++    try:
++        resp = client.get("/analytics")
++        if resp.status_code == 200:
++            data = resp.json()
++            required_keys = {"window_days", "totals", "by_severity"}
++            if required_keys.issubset(data.keys()):
++                print("✅ Test 4 /analytics passed")
++            else:
++                print(f"❌ Test 4 /analytics failed: Missing keys. Got {list(data.keys())}")
+         else:
+-            print(f"FAIL: Tier missing in {data}")
+-    else:
+-        print(f"FAIL: {resp.status_code}")
++            print(f"❌ Test 4 /analytics failed: Status {resp.status_code}")
++    except Exception as e:
++        print(f"❌ Test 4 /analytics failed with exception: {e}")
+ 
+-    # 5. Verify /analytics.html Protection
+-    print("\n[Test] /analytics.html Protection")
+-    resp = client.get("/analytics.html")
+-    if resp.status_code == 401:
+-        print("PASS: Public access blocked (401)")
+-    else:
+-        print(f"FAIL: Public access allowed ({resp.status_code})")
+-        
+-    resp = client.get("/analytics.html", headers={"X-Admin-Token": admin_token})
+-    if resp.status_code == 200 and "<polyline" in resp.text: # check for sparkline or html structure
+-        print("PASS: Admin access allowed")
+-    else:
+-        print(f"FAIL: Admin access issues ({resp.status_code})")
++    # Test 5: HTML dashboard
++    # Note: Requires Auth in Phase 4. Using token to expect 200 OK.
++    try:
++        resp = client.get("/analytics.html", headers={"X-Admin-Token": ADMIN_TOKEN})
++        if resp.status_code == 200:
++            if "QubitGrid" in resp.text:
++                print("✅ Test 5 /analytics.html passed")
++            else:
++                print("❌ Test 5 /analytics.html failed: 'QubitGrid' not found in response text")
++        else:
++            print(f"❌ Test 5 /analytics.html failed: Status {resp.status_code}")
++    except Exception as e:
++        print(f"❌ Test 5 /analytics.html failed with exception: {e}")
+ 
+-    print("\n--- Verification Complete ---")
++    print("\n--- Smoke Tests Complete ---")
+ 
+ if __name__ == "__main__":
+-    run_tests()
++    run_smoke_tests()
+diff --git a/2 - redactor/readme.md b/2 - redactor/readme.md
+index e69de29..d7e7ac8 100644
+--- a/2 - redactor/readme.md	
++++ b/2 - redactor/readme.md	
+@@ -0,0 +1,16 @@
++\# QuantumEdge | AI Privacy Redactor
++
++
++
++This is part of the \*\*QuantumEdge platform\*\*, a suite of pre-audit readiness tools for AI, blockchain, and advanced technologies.
++
++
++
++\## Important Note
++
++QuantumEdge provides automated \*\*pre-audit readiness tools\*\* and continuous monitoring insights.
++
++Reports are designed to support internal teams and prepare organizations for compliance and certification processes.
++
++\*\*QuantumEdge does not issue certifications, it equips you to pass them.\*\*
++
+diff --git a/3 - logger/readme.md b/3 - logger/readme.md
+index e69de29..977ba79 100644
+--- a/3 - logger/readme.md	
++++ b/3 - logger/readme.md	
+@@ -0,0 +1,16 @@
++\# QuantumEdge | AI Agent Audit Logger
++
++
++
++This is part of the \*\*QuantumEdge platform\*\*, a suite of pre-audit readiness tools for AI, blockchain, and advanced technologies.
++
++
++
++\## Important Note
++
++QuantumEdge provides automated \*\*pre-audit readiness tools\*\* and continuous monitoring insights.
++
++Reports are designed to support internal teams and prepare organizations for compliance and certification processes.
++
++\*\*QuantumEdge does not issue certifications, it equips you to pass them.\*\*
++
+diff --git a/4 - pqc/readme.md b/4 - pqc/readme.md
+index e69de29..7820bac 100644
+--- a/4 - pqc/readme.md	
++++ b/4 - pqc/readme.md	
+@@ -0,0 +1,16 @@
++\# QuantumEdge | PQC TLS Readiness Checker
++
++
++
++This is part of the \*\*QuantumEdge platform\*\*, a suite of pre-audit readiness tools for AI, blockchain, and advanced technologies.
++
++
++
++\## Important Note
++
++QuantumEdge provides automated \*\*pre-audit readiness tools\*\* and continuous monitoring insights.
++
++Reports are designed to support internal teams and prepare organizations for compliance and certification processes.
++
++\*\*QuantumEdge does not issue certifications, it equips you to pass them.\*\*
++
+diff --git a/5 - crypto/readme.md b/5 - crypto/readme.md
+index e69de29..9a1cc45 100644
+--- a/5 - crypto/readme.md	
++++ b/5 - crypto/readme.md	
+@@ -0,0 +1,16 @@
++\# QuantumEdge | Quantum-Safe Crypto Auditor
++
++
++
++This is part of the \*\*QuantumEdge platform\*\*, a suite of pre-audit readiness tools for AI, blockchain, and advanced technologies.
++
++
++
++\## Important Note
++
++QuantumEdge provides automated \*\*pre-audit readiness tools\*\* and continuous monitoring insights.
++
++Reports are designed to support internal teams and prepare organizations for compliance and certification processes.
++
++\*\*QuantumEdge does not issue certifications, it equips you to pass them.\*\*
++
+diff --git a/readme.md b/readme.md
+index e69de29..cbf453f 100644
+--- a/readme.md
++++ b/readme.md
+@@ -0,0 +1,40 @@
++\# QuantumEdge
++
++
++
++QuantumEdge is a platform of \*\*pre-audit readiness tools\*\* that help individuals, startups, and enterprises prepare for compliance and security challenges in AI, blockchain, and advanced technologies.
++
++
++
++\## What’s Inside
++
++QuantumEdge is made of lightweight, Lego-block style MVPs:
++
++\- \*\*Prompt Injection Scanner\*\* → detects unsafe AI prompts.
++
++\- \*\*AI Privacy Redactor\*\* → masks sensitive data like emails and phone numbers.
++
++\- \*\*AI Agent Audit Logger\*\* → keeps track of prompts and outputs for explainability.
++
++\- \*\*PQC TLS Readiness Checker\*\* → checks if your systems are ready for post-quantum cryptography standards.
++
++\- \*\*Quantum-Safe Crypto Auditor\*\* → evaluates crypto wallets and contracts for quantum safety.
++
++
++
++\## Important Note
++
++
++
++QuantumEdge provides automated \*\*pre-audit readiness tools\*\* and continuous monitoring insights.
++
++Reports are designed to support internal teams and prepare organizations for compliance and certification processes.
++
++\*\*QuantumEdge does not issue certifications — it equips you to pass them.\*\*
++
++
++
++\## License
++
++MIT License: free to use, modify, and share with attribution.
++

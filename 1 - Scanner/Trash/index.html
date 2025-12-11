@@ -128,52 +128,45 @@
   </div>
 
   <!-- Indie Plan -->
-  <div class="plan-card indie">
-    <h5>💻 Indie</h5>
-    <p class="price">$9<span> /mo</span></p>
-    <ul>
-      <li>✅ Automate prompt scans via API key</li>
-      <li>✅ Watermarked PDF reports for clients</li>
-    </ul>
-    <button
-      class="btn-primary"
-      onclick="window.location.href='/buy/indie-sub'"
-    >
-      Buy Indie
-    </button>
-  </div>
+<div class="plan-card indie">
+  <h5>💻 Indie</h5>
+  <p class="price">$19.99<span> /mo</span></p>
+  <ul>
+    <li>✅ Automate prompt scans via API key</li>
+    <li>✅ Watermarked PDF reports for clients</li>
+  </ul>
+  <!-- >>> Replace this button -->
+  <button class="btn-primary" data-checkout="indie">Buy Indie</button>
+  <!-- <<< -->
+</div>
 
-  <!-- Pro Plan -->
-  <div class="plan-card pro">
-    <h5>⚙️ Pro</h5>
-    <p class="price">$29<span> /mo</span></p>
-    <ul>
-      <li>✅ Priority queue &amp; extended analytics</li>
-      <li>✅ Audit-ready PDF summaries (no watermark)</li>
-    </ul>
-    <button
-      class="btn-primary"
-      onclick="window.location.href='/buy/pro'"
-    >
-      Buy Pro
-    </button>
-  </div>
+<!-- Pro Plan -->
+<div class="plan-card pro">
+  <h5>⚙️ Pro</h5>
+  <p class="price">$29<span> /mo</span></p>
+  <ul>
+    <li>✅ Priority queue &amp; extended analytics</li>
+    <li>✅ Audit-ready PDF summaries (no watermark)</li>
+  </ul>
+  <!-- >>> Replace this button -->
+  <button class="btn-primary" data-checkout="pro">Buy Pro</button>
+  <!-- <<< -->
+</div>
 
-  <!-- Lifetime Plan -->
-  <div class="plan-card lifetime">
-    <h5>🏆 Lifetime</h5>
-    <p class="price">$199<span> one-time</span></p>
-    <ul>
-      <li>✅ Unlimited Pro features for life</li>
-      <li>✅ Founding-tier access to future modules</li>
-    </ul>
-    <button
-      class="btn-primary"
-      onclick="window.location.href='/buy/lifetime'"
-    >
-      Get Lifetime Access
-    </button>
-  </div>
+<!-- Lifetime Plan -->
+<div class="plan-card lifetime">
+  <h5>🏆 Lifetime</h5>
+  <p class="price">$199<span> one-time</span></p>
+  <ul>
+    <li>✅ Unlimited Pro features for life</li>
+    <li>✅ Founding-tier access to future modules</li>
+  </ul>
+  <!-- >>> Replace this button -->
+  <button class="btn-primary" data-checkout="lifetime">
+    Get Lifetime Access
+  </button>
+  <!-- <<< -->
+</div>
 </div>
 <!-- <<< INSERT: PRICING & UPGRADES (END) -->
 
@@ -290,63 +283,31 @@
         resultSummary.textContent = "Scanning…";
 
         try {
-            const resp = await fetch(`/scan?text=${encodeURIComponent(text)}`);
-	const data = await resp.json();
-	showResultsPanel(data);
+           // >>> FIX: handle 429 and other errors correctly (BEGIN)
+const resp = await fetch(`/scan?text=${encodeURIComponent(text)}`);
+const data = await resp.json();
 
-        } catch (err) {
-            resultSummary.textContent = "Scan failed — please try again.";
-            showBanner("Scan failed — see console for details.", false);
-            console.error(err);
-        }
-    });
-<!-- >>> INSERT: FREE SCAN LIMITER BANNER HANDLER (BEGIN) -->
-// Helper: show banner with message + type ("info" | "warning" | "error")
-function showBanner(msg, type = "info") {
-  const banner = document.getElementById("statusBanner");
-  banner.textContent = msg;
-  banner.classList.remove("hidden");
-  banner.className = `banner ${type}`;
-  setTimeout(() => banner.classList.add("hidden"), 6000);
+// Detect 429 Too Many Requests (free-tier limit) or other non-OK responses
+if (resp.status === 429 && data && data.error) {
+  // show friendly banner and result summary
+  showBanner(`⚠️ ${data.error} (limit: ${data.limit}/day). Reset: ${data.reset_utc_date}`, "warning");
+  severityBadge.textContent = "Limit Reached";
+  severityBadge.className = "severity-badge high";
+  resultSummary.textContent = data.error;
+  resultJSON.textContent = JSON.stringify(data, null, 2);
+  // stop normal success flow
+  return;
 }
 
-// Wrap fetch call for Scan with 429 awareness
-async function runScanWithLimit(text) {
-  try {
-    const res = await fetch(`/scan?text=${encodeURIComponent(text)}`);
-    const data = await res.json();
-
-    if (!res.ok) {
-      // Handle rate-limit or other API errors
-      if (res.status === 429 && data.error) {
-        const msg = `⚠️ ${data.error} (${data.limit}/day). Reset: ${data.reset_utc_date}. 
-        Upgrade → ${data.upgrade}`;
-        showBanner(msg, "warning");
-      } else {
-        showBanner(`❌ Scan failed: ${data.error || res.statusText}`, "error");
-      }
-      return;
-    }
-
-    // Normal success flow
-    renderScanResults(data);
-  } catch (err) {
-    console.error("Scan request failed:", err);
-    showBanner("Network error during scan.", "error");
-  }
+if (!resp.ok) {
+  // other errors (500, network, etc.)
+  showBanner(`❌ Scan failed — see console for details.`, "error");
+  console.error("Scan error response:", resp.status, data);
+  return;
 }
+// <<< FIX: handle 429 and other errors correctly (END)
 
-// Override existing Scan button behavior
-btnScan.removeEventListener("click", existingScanHandler || (() => {})); // if old listener defined
-btnScan.addEventListener("click", () => {
-  const text = input.value.trim();
-  if (!text) {
-    showBanner("Please enter text to scan.", "info");
-    return;
-  }
-  runScanWithLimit(text);
-});
-<!-- <<< INSERT: FREE SCAN LIMITER BANNER HANDLER (END) -->
+
 
 
       // ================================
@@ -451,6 +412,48 @@ document.addEventListener("keydown", (e) => {
 
 
 // <<< ENHANCED RESULTS PANEL LOGIC (END)
+/* ============================================================
+   STRIPE CHECKOUT REDIRECT LOGIC (same as roadmap)
+============================================================ */
+async function startCheckout(endpoint){
+  const btn=document.activeElement;
+  try{
+    if(btn&&btn.tagName==='BUTTON')btn.disabled=true;
+    const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      alert(err?.detail||`Checkout failed (${res.status})`);
+      if(btn)btn.disabled=false;return;
+    }
+    const data=await res.json();
+    if(!data?.url){alert('Checkout failed: no URL returned.');if(btn)btn.disabled=false;return;}
+    window.location.href=data.url;
+  }catch(e){
+    alert('Network error starting checkout. Please try again.');
+    if(btn)btn.disabled=false;
+  }
+}
+
+document.querySelectorAll('[data-checkout]').forEach(el=>{
+  const plan=el.getAttribute('data-checkout');
+  let endpoint='';
+  if(plan==='indie') endpoint='/buy/indie';
+  else if(plan==='pro') endpoint='/buy/pro';
+  else if(plan==='lifetime') endpoint='/buy/lifetime';
+  if(endpoint) el.addEventListener('click',()=>startCheckout(endpoint));
+});
+
+// ================================
+// Stripe return banner handler
+// ================================
+window.addEventListener("DOMContentLoaded", () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("success")) {
+    showBanner("Payment successful ✔️", true);
+  } else if (params.has("canceled")) {
+    showBanner("Payment canceled ❌", false);
+  }
+});
 
     </script>
   </body>

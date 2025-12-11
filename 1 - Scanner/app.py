@@ -168,6 +168,30 @@ def _client_token(request: Request) -> tuple[str, str, str]:
 # Key format: "key_hash" -> Value: {"date": "YYYY-MM-DD", "count": int}
 _PAID_LIMIT_BUCKET: dict[str, dict[str, Any]] = {}
 
+def _get_paid_usage_stats(key_hash: str, plan_name: str) -> dict:
+    """
+    Read-only fetch of usage stats for the dashboard.
+    Does NOT increment counters.
+    """
+    # 1. Resolve limit
+    tier_def = _tier_by_name(plan_name)
+    limit = int(tier_def.get("scan_limit_per_day", FREE_DAILY_LIMIT))
+    
+    # 2. Check bucket
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    entry = _PAID_LIMIT_BUCKET.get(key_hash)
+    
+    count = 0
+    if entry and entry.get("date") == today:
+        count = entry["count"]
+        
+    return {
+        "limit": limit,
+        "count": count,
+        "remaining": max(0, limit - count),
+        "reset_utc": (datetime.utcnow().date() + timedelta(days=1)).isoformat()
+    }
+
 def _check_paid_limit(key_hash: str, plan_name: str) -> Tuple[bool, int, int]:
     """
     Check if the API key has exceeded its daily limit based on the plan.
@@ -249,6 +273,50 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
     except Exception:
         pass
     return None
+
+def _authenticate_view_only(request: Request) -> Tuple[dict | None, dict]:
+    """
+    Authentication for Dashboard (View-Only).
+    - Checks API Key against DB.
+    - Does NOT check or increment rate limits.
+    - Does NOT allow Admin Token (User Dashboard is for Users).
+    
+    Returns:
+      (error_dict, user_context)
+    """
+    auth_header = request.headers.get("authorization", "").strip()
+    if not auth_header.startswith("Bearer "):
+         return {"error": "Missing API Key", "status_code": 401}, None
+
+    token = auth_header[len("Bearer "):].strip()
+    
+    # Explicitly disallow Admin Token for this user view
+    if API_KEY and token == API_KEY:
+        return {"error": "Admin token not allowed here. Use real user key.", "status_code": 403}, None
+
+    from models import SessionLocal, APIKey, Customer
+    
+    params_hash = APIKey.hash_key(token)
+    session = SessionLocal()
+    try:
+        api_key_record = session.query(APIKey).filter_by(key_hash=params_hash, active=True).first()
+        if not api_key_record:
+             return {"error": "Invalid or inactive API key.", "status_code": 401}, None
+             
+        # Fetch detailed status from Customer table
+        customer = session.query(Customer).filter_by(email=api_key_record.user_email).first()
+        status = customer.status if customer else "unknown"
+
+        ctx = {
+            "email": api_key_record.user_email,
+            "plan": api_key_record.plan,
+            "key_hash": params_hash,
+            "masked_key": f"qg_{token[:4]}...{token[-4:]}" if len(token) > 10 else "qg_masked",
+            "status": status
+        }
+        return None, ctx
+    finally:
+        session.close()
 
 def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str, dict]:
     """
@@ -2109,6 +2177,88 @@ def _free_daily_limit_from_model(default: int = 15) -> int:
 # ----------------------------------------------------------------------------- 
 
 
+
+
+# >>> INSERT: USER DASHBOARD (BEGIN)
+@app.get("/dashboard", response_class=HTMLResponse)
+def user_dashboard(request: Request):
+    """
+    User Dashboard: View API Key stats, tier, and billing status.
+    Auth: Bearer <API_KEY>
+    """
+    error, ctx = _authenticate_view_only(request)
+    if error:
+        # Simple error page
+        return HTMLResponse(f"""
+        <html><body style='background:#0b1220;color:#e8eef6;font-family:sans-serif;padding:40px;text-align:center'>
+        <h2>Access Denied</h2>
+        <p>{error.get('error')}</p>
+        </body></html>
+        """, status_code=error.get("status_code", 401))
+    
+    # Fetch usage stats (no side-effects)
+    stats = _get_paid_usage_stats(ctx["key_hash"], ctx["plan"])
+    
+    # Render Dashboard
+    return HTMLResponse(f"""<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>QubitGrid™ — Dashboard</title>
+<style>
+  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--success:#10b981;--danger:#ef4444}}
+  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}}
+  .wrap{{max-width:600px;margin:40px auto;padding:0 16px}}
+  .card{{background:#111827;border:1px solid var(--line);border-radius:14px;padding:24px}}
+  h1{{margin:0 0 4px;font-size:20px}} h2{{margin:0 0 16px;font-size:14px;color:var(--muted);font-weight:400}}
+  .stat-row{{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:12px 0}}
+  .stat-row:last-child{{border-bottom:none}}
+  .label{{color:var(--muted);font-size:13px}}
+  .value{{font-weight:600;font-size:14px}}
+  .badge{{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;text-transform:uppercase}}
+  .status-active{{background:rgba(16,185,129,0.2);color:var(--success)}}
+  .status-inactive{{background:rgba(239,68,68,0.2);color:var(--danger)}}
+  .key-box{{background:#0d1116;border:1px solid var(--line);padding:10px;border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:20px;word-break:break-all;color:var(--accent)}}
+  .links{{margin-top:20px;text-align:center;font-size:13px}}
+  a{{color:var(--muted)}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>My Subscription</h1>
+      <h2>{ctx['email']}</h2>
+      
+      <div class="key-box">{ctx['masked_key']}</div>
+      
+      <div class="stat-row">
+        <span class="label">Plan Tier</span>
+        <span class="value">{ctx['plan']}</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Status</span>
+        <span class="value"><span class="badge status-{ctx['status']}">{ctx['status']}</span></span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Daily Usage</span>
+        <span class="value">{stats['count']} / {stats['limit']} scans</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Remaining Today</span>
+        <span class="value">{stats['remaining']}</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Resets At</span>
+        <span class="value">{stats['reset_utc']} UTC</span>
+      </div>
+    </div>
+    <div class="links">
+       <a href="/">Home</a> • <a href="/roadmap">Roadmap</a>
+    </div>
+  </div>
+</body>
+</html>""")
+# <<< INSERT: USER DASHBOARD (END)
 
 @app.get("/__version", response_class=PlainTextResponse)
 def version():
