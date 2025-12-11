@@ -100,9 +100,28 @@ def _analytics_init():
             flagged INTEGER NOT NULL,
             latency_ms INTEGER,
             prompt_hash TEXT,
-            report_path TEXT
+            report_path TEXT,
+            customer_email TEXT,
+            api_key_prefix TEXT
         );
         """)
+        
+        # Phase 4 Migration Helper: Add columns if missing (safe idempotent check)
+        # We rely on PRAGMA table_info to check existence, then ALTER TABLE.
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(scan_logs)")}
+        
+        if "customer_email" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE scan_logs ADD COLUMN customer_email TEXT")
+            except Exception as e:
+                print(f"[DB] Migration warning (customer_email): {e}")
+
+        if "api_key_prefix" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE scan_logs ADD COLUMN api_key_prefix TEXT")
+            except Exception as e:
+                print(f"[DB] Migration warning (api_key_prefix): {e}")
+
         conn.commit()
 
 _analytics_init()
@@ -231,18 +250,14 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
         pass
     return None
 
-def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str]:
+def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str, dict]:
     """
     Unified Auth & Rate Limit Enforcer.
     
     Returns:
-      (error_response_dict, tier_name)
+      (error_response_dict, tier_name, auth_context)
       
-    Logic:
-      1. If no Auth header -> Apply Free Tier IP Limit.
-      2. If Auth header:
-         a. Check Env Var (API_KEY) -> Admin/Unlimited.
-         b. Check DB (APIKey) -> Valid? -> Paid Tier Limit.
+    auth_context keys: source ("free"|"admin"|"api_key"), customer_email, api_key_prefix, plan
     """
     auth_header = request.headers.get("authorization", "").strip()
     
@@ -251,14 +266,14 @@ def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str]:
         # Apply existing IP-based limit
         limit_error = _rate_limit_check_and_increment(request)
         if limit_error:
-            return limit_error, "Free"
-        return None, "Free"
+            return limit_error, "Free", {"source": "free"}
+        return None, "Free", {"source": "free"}
 
     token = auth_header[len("Bearer "):].strip()
 
     # --- 2a. Admin / Env Var Bypass ---
     if API_KEY and token == API_KEY:
-        return None, "Admin"
+        return None, "Admin", {"source": "admin"}
 
     # --- 2b. DB-Backed API Key ---
     from models import SessionLocal, APIKey
@@ -273,7 +288,7 @@ def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str]:
         
         if not api_key_record:
             # Invalid key
-            return {"error": "Invalid or inactive API key.", "status_code": 401}, "Unknown"
+            return {"error": "Invalid or inactive API key.", "status_code": 401}, "Unknown", {"source": "error"}
         
         # Key is valid. Check Rate Limit for this Plan.
         plan_name = api_key_record.plan
@@ -286,14 +301,21 @@ def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str]:
                 "reset_utc_date": (datetime.utcnow().date() + timedelta(days=1)).isoformat(),
                 "upgrade": "/roadmap",
                 "status_code": 429
-            }, plan_name
+            }, plan_name, {"source": "error"}
             
-        # Allowed
-        return None, plan_name
+        # Allowed - Return Full Context
+        ctx = {
+            "source": "api_key",
+            "api_key_hash": params_hash,
+            "api_key_prefix": params_hash[:8],
+            "customer_email": api_key_record.user_email,
+            "plan": plan_name
+        }
+        return None, plan_name, ctx
 
     except Exception as e:
         print(f"[AUTH ERROR] {e}")
-        return {"error": "Internal auth error", "status_code": 500}, "Unknown"
+        return {"error": "Internal auth error", "status_code": 500}, "Unknown", {"source": "error"}
     finally:
         session.close()
 
@@ -328,17 +350,19 @@ def _analytics_insert_row(row: dict):
     with _db_connect() as conn:
         conn.execute(
             """INSERT INTO scan_logs
-               (timestamp, ip_masked, user_tier, status, flagged, latency_ms, prompt_hash, report_path)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (timestamp, ip_masked, user_tier, status, flagged, latency_ms, prompt_hash, report_path, customer_email, api_key_prefix)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 row["timestamp"],
-                row.get("ip_masked",""),
-                row.get("user_tier","Free"),
+                row.get("ip_masked", ""),
+                row.get("user_tier", "Free"),
                 str(row["status"]),
                 1 if row.get("flagged") else 0,
                 row.get("latency_ms"),
                 row.get("prompt_hash"),
                 row.get("report_path"),
+                row.get("customer_email"),
+                row.get("api_key_prefix"),
             ),
         )
         conn.commit()
@@ -835,8 +859,8 @@ def scan(
     client_ip = request.client.host if request and request.client else ""
     
     # ---------- AUTH & RATE LIMIT ----------
-    # This replaces the old hardcoded _rate_limit_check_and_increment call
-    error_payload, tier = _authenticate_and_limit(request)
+    # Return context (source, email, etc.) for logging
+    error_payload, tier, auth_ctx = _authenticate_and_limit(request)
     
     if error_payload:
         # Check if it's a 401/403 or 429
@@ -853,6 +877,8 @@ def scan(
                 "latency_ms": int((time.perf_counter() - start_ts) * 1000),
                 "prompt_hash": _sha1(text or ""),
                 "report_path": None,
+                "customer_email": auth_ctx.get("customer_email"),
+                "api_key_prefix": auth_ctx.get("api_key_prefix"),
             })
         
         return JSONResponse(error_payload, status_code=status)
@@ -931,6 +957,8 @@ def scan(
         "latency_ms": end_ms,
         "prompt_hash": _sha1(text or ""),
         "report_path": result.get("report_path"),
+        "customer_email": auth_ctx.get("customer_email"),
+        "api_key_prefix": auth_ctx.get("api_key_prefix"),
     })
 
     return JSONResponse(result)
@@ -1024,13 +1052,13 @@ def analytics_summary(days: int = 7):
         "series": series
     })
 @app.get("/analytics.html", response_class=HTMLResponse)
-def analytics_html():
+def analytics_html(x_admin_token: str = Header(None)):
     """
-    Minimal HTML dashboard for live usage.
-    - Reads JSON from /analytics?days=7 via fetch()
-    - Renders totals, severity, checkout intents, and a sparkline
-    Pure client-side; zero extra dependencies.
+    Minimal HTML dashboard. Protected in Phase 4.
     """
+    if ADMIN_TOKEN and x_admin_token != ADMIN_TOKEN:
+        return HTMLResponse("<h1>401 Unauthorized</h1><p>Admin token required.</p>", status_code=401)
+
     return HTMLResponse("""<!doctype html>
 <html lang="en">
 <head>
@@ -1083,6 +1111,8 @@ def analytics_html():
 <script>
 (async function(){
   // 1) Fetch JSON summary
+  // Need to pass the token from the parent page if possible, but for now this relies on the browser session or
+  // simple unprotected generic analytics endpoint behavior (since /analytics JSON is public in Phase 4 plan, only HTML is gated).
   const res = await fetch('/analytics?days=7');
   if(!res.ok){ document.body.innerHTML = '<p style="padding:20px">Failed to load /analytics</p>'; return; }
   const data = await res.json();
@@ -1177,6 +1207,124 @@ def admin_usage(limit: int = 20, x_admin_token: str = Header(None)):
             for r in cur.fetchall()
         ]
     return {"rows": rows, "count": len(rows)}
+
+# --- NEW: USAGE BY KEY PREFIX ---
+@app.get("/admin/key-usage")
+def admin_key_usage(prefix: str, days: int = 7, x_admin_token: str = Header(None)):
+    """
+    Phase 4: Inspect usage for a specific API Key Prefix.
+    """
+    if ADMIN_TOKEN and x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    days = max(1, min(int(days), 90))
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    with _db_connect() as conn:
+        # Aggregates
+        cur = conn.execute(
+            "SELECT status, user_tier, count(*) FROM scan_logs "
+            "WHERE api_key_prefix = ? AND timestamp >= ? GROUP BY status, user_tier",
+            (prefix, cutoff)
+        )
+        stats = cur.fetchall()
+        
+        total = 0
+        by_status = Counter()
+        by_tier = Counter()
+        for st, tier, cnt in stats:
+            total += cnt
+            by_status[st] += cnt
+            by_tier[tier] += cnt
+            
+        # Samples
+        cur = conn.execute(
+            "SELECT timestamp, user_tier, status, flagged, latency_ms FROM scan_logs "
+            "WHERE api_key_prefix = ? AND timestamp >= ? "
+            "ORDER BY id DESC LIMIT 50",
+            (prefix, cutoff)
+        )
+        samples = [
+            {
+                "timestamp": r[0], 
+                "user_tier": r[1], 
+                "status": int(r[2]), 
+                "flagged": bool(r[3]), 
+                "latency_ms": r[4]
+            }
+            for r in cur.fetchall()
+        ]
+
+    return {
+        "prefix": prefix,
+        "window_days": days,
+        "total_scans": total,
+        "by_status": dict(by_status),
+        "by_tier": dict(by_tier),
+        "samples": samples
+    }
+
+# --- NEW: USAGE BY CUSTOMER EMAIL ---
+@app.get("/admin/customer-usage")
+def admin_customer_usage(email: str, days: int = 7, x_admin_token: str = Header(None)):
+    """
+    Phase 4: Inspect usage for a specific Customer Email.
+    """
+    if ADMIN_TOKEN and x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    days = max(1, min(int(days), 90))
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    
+    with _db_connect() as conn:
+        # Aggregates
+        cur = conn.execute(
+            "SELECT status, user_tier, api_key_prefix, count(*) FROM scan_logs "
+            "WHERE customer_email = ? AND timestamp >= ? GROUP BY status, user_tier, api_key_prefix",
+            (email, cutoff)
+        )
+        stats = cur.fetchall()
+        
+        total = 0
+        by_status = Counter()
+        by_tier = Counter()
+        by_prefix = Counter()
+        
+        for st, tier, pfx, cnt in stats:
+            total += cnt
+            by_status[st] += cnt
+            by_tier[tier] += cnt
+            if pfx: by_prefix[pfx] += cnt
+            
+        # Samples
+        cur = conn.execute(
+            "SELECT timestamp, api_key_prefix, user_tier, status, flagged, latency_ms FROM scan_logs "
+            "WHERE customer_email = ? AND timestamp >= ? "
+            "ORDER BY id DESC LIMIT 50",
+            (email, cutoff)
+        )
+        samples = [
+            {
+                "timestamp": r[0], 
+                "api_key_prefix": r[1],
+                "user_tier": r[2], 
+                "status": int(r[3]), 
+                "flagged": bool(r[4]), 
+                "latency_ms": r[5]
+            }
+            for r in cur.fetchall()
+        ]
+
+    return {
+        "email": email,
+        "window_days": days,
+        "total_scans": total,
+        "by_status": dict(by_status),
+        "by_tier": dict(by_tier),
+        "by_key_prefix": dict(by_prefix),
+        "samples": samples
+    }
+
 # <<< INSERT: ANALYTICS — ADMIN ENDPOINT (END)
 
 
