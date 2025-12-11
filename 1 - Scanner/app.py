@@ -144,6 +144,38 @@ def _client_token(request: Request) -> tuple[str, str, str]:
     token = f"{ip}|{ua_hash}"
     return token, ip, ua_hash
 
+# >>> INSERT: PAID RATE LIMIT BUCKET (BEGIN)
+# Ledger for paid API key usage.
+# Key format: "key_hash" -> Value: {"date": "YYYY-MM-DD", "count": int}
+_PAID_LIMIT_BUCKET: dict[str, dict[str, Any]] = {}
+
+def _check_paid_limit(key_hash: str, plan_name: str) -> Tuple[bool, int, int]:
+    """
+    Check if the API key has exceeded its daily limit based on the plan.
+    Returns: (is_allowed, limit, remaining)
+    """
+    # 1. Resolve limit from Pricing Model
+    tier_def = _tier_by_name(plan_name)
+    # Default to Free limit if plan not found (safety fallback)
+    limit = int(tier_def.get("scan_limit_per_day", FREE_DAILY_LIMIT))
+    
+    # 2. Check bucket
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    entry = _PAID_LIMIT_BUCKET.get(key_hash)
+
+    if not entry or entry.get("date") != today:
+        entry = {"date": today, "count": 0}
+        _PAID_LIMIT_BUCKET[key_hash] = entry
+    
+    # 3. Enforce
+    if entry["count"] >= limit:
+        return False, limit, 0
+    
+    # 4. Increment (optimistic; caller will proceed to scan)
+    entry["count"] += 1
+    return True, limit, limit - entry["count"]
+# <<< INSERT: PAID RATE LIMIT BUCKET (END)
+
 def _rate_limit_check_and_increment(request: Request) -> dict | None:
     """
     Enforce the FREE_DAILY_LIMIT for anonymous users.
@@ -198,6 +230,72 @@ def _rate_limit_check_and_increment(request: Request) -> dict | None:
     except Exception:
         pass
     return None
+
+def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str]:
+    """
+    Unified Auth & Rate Limit Enforcer.
+    
+    Returns:
+      (error_response_dict, tier_name)
+      
+    Logic:
+      1. If no Auth header -> Apply Free Tier IP Limit.
+      2. If Auth header:
+         a. Check Env Var (API_KEY) -> Admin/Unlimited.
+         b. Check DB (APIKey) -> Valid? -> Paid Tier Limit.
+    """
+    auth_header = request.headers.get("authorization", "").strip()
+    
+    # --- 1. Anonymous / Free Tier ---
+    if not auth_header.startswith("Bearer "):
+        # Apply existing IP-based limit
+        limit_error = _rate_limit_check_and_increment(request)
+        if limit_error:
+            return limit_error, "Free"
+        return None, "Free"
+
+    token = auth_header[len("Bearer "):].strip()
+
+    # --- 2a. Admin / Env Var Bypass ---
+    if API_KEY and token == API_KEY:
+        return None, "Admin"
+
+    # --- 2b. DB-Backed API Key ---
+    from models import SessionLocal, APIKey
+    
+    # Hash incoming key to lookup
+    params_hash = APIKey.hash_key(token)
+    
+    session = SessionLocal()
+    try:
+        # Find active key
+        api_key_record = session.query(APIKey).filter_by(key_hash=params_hash, active=True).first()
+        
+        if not api_key_record:
+            # Invalid key
+            return {"error": "Invalid or inactive API key.", "status_code": 401}, "Unknown"
+        
+        # Key is valid. Check Rate Limit for this Plan.
+        plan_name = api_key_record.plan
+        allowed, limit, remaining = _check_paid_limit(params_hash, plan_name)
+        
+        if not allowed:
+            return {
+                "error": f"Daily limit reached for {plan_name} tier.",
+                "limit": limit,
+                "reset_utc_date": (datetime.utcnow().date() + timedelta(days=1)).isoformat(),
+                "upgrade": "/roadmap",
+                "status_code": 429
+            }, plan_name
+            
+        # Allowed
+        return None, plan_name
+
+    except Exception as e:
+        print(f"[AUTH ERROR] {e}")
+        return {"error": "Internal auth error", "status_code": 500}, "Unknown"
+    finally:
+        session.close()
 
 # ---------------------------------------------------------------------
 # In-memory telemetry ring buffer (keeps recent events; survives process lifetime)
@@ -735,25 +833,30 @@ def scan(
     # --- analytics timer + client info (for /admin/usage rows) ---
     start_ts = time.perf_counter()
     client_ip = request.client.host if request and request.client else ""
-    tier = "Free"  # TODO: later map from API key when paid users exist
-
-    # ---------- FREE TIER RATE LIMIT (anonymous) ----------
-    rl = _rate_limit_check_and_increment(request)
-    if rl is not None:
-        # 429: record the rate-limited event, then return JSON
-        end_ms = int((time.perf_counter() - start_ts) * 1000)
-        bt.add_task(_analytics_insert_row, {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "ip_masked": _mask_ip(client_ip),
-            "user_tier": tier,
-            "status": 429,
-            "flagged": False,
-            "latency_ms": end_ms,
-            "prompt_hash": _sha1(text or ""),
-            "report_path": None,
-        })
-        return JSONResponse(rl, status_code=429)
-    # ------------------------------------------------------
+    
+    # ---------- AUTH & RATE LIMIT ----------
+    # This replaces the old hardcoded _rate_limit_check_and_increment call
+    error_payload, tier = _authenticate_and_limit(request)
+    
+    if error_payload:
+        # Check if it's a 401/403 or 429
+        status = error_payload.pop("status_code", 429)
+        
+        # Log the failure (optional, but good for visibility)
+        if status == 429:
+             bt.add_task(_analytics_insert_row, {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "ip_masked": _mask_ip(client_ip),
+                "user_tier": tier,
+                "status": 429,
+                "flagged": False,
+                "latency_ms": int((time.perf_counter() - start_ts) * 1000),
+                "prompt_hash": _sha1(text or ""),
+                "report_path": None,
+            })
+        
+        return JSONResponse(error_payload, status_code=status)
+    # ---------------------------------------
 
     # ---------- INPUT SIZE POLICY (soft cap with head/tail scan) ----------
     MAX_INPUT_CHARS = int(os.getenv("MAX_INPUT_CHARS", "50000"))   # total slice size
