@@ -122,6 +122,15 @@ def _analytics_init():
             except Exception as e:
                 print(f"[DB] Migration warning (api_key_prefix): {e}")
 
+        # Phase 8 Migration: Ensure grace_period_start exists on customers
+        try:
+            cust_cols = {row[1] for row in conn.execute("PRAGMA table_info(customers)")}
+            if "grace_period_start" not in cust_cols and "id" in cust_cols:
+                conn.execute("ALTER TABLE customers ADD COLUMN grace_period_start TIMESTAMP")
+                print("[DB] Migrated customers table: added grace_period_start")
+        except Exception:
+            pass
+
         conn.commit()
 
 _analytics_init()
@@ -306,14 +315,32 @@ def _authenticate_view_only(request: Request) -> Tuple[dict | None, dict]:
         # Fetch detailed status from Customer table
         customer = session.query(Customer).filter_by(email=api_key_record.user_email).first()
         status = customer.status if customer else "unknown"
-
+        
+        # --- PHASE 8: AUTH ENFORCEMENT ---
+        if status == "past_due" and customer.grace_period_start:
+            # Check grace window (3 days)
+            deadline = customer.grace_period_start + timedelta(days=3)
+            if datetime.utcnow() > deadline:
+                return {"error": "Subscription expired. Please update billing.", "grace_ended": True, "status_code": 402}, None
+        
+        elif status in ["canceled", "unpaid"]:
+             return {"error": "Subscription canceled. Please reactivate.", "status_code": 402}, None
+             
         ctx = {
             "email": api_key_record.user_email,
             "plan": api_key_record.plan,
             "key_hash": params_hash,
             "masked_key": f"qg_{token[:4]}...{token[-4:]}" if len(token) > 10 else "qg_masked",
-            "status": status
+            "status": status,
+            "days_left": None
         }
+        
+        # Pass days_left for dashboard banner logic
+        if status == "past_due" and customer.grace_period_start:
+             deadline = customer.grace_period_start + timedelta(days=3)
+             delta = deadline - datetime.utcnow()
+             ctx["days_left"] = max(0, delta.days)
+
         return None, ctx
     finally:
         session.close()
@@ -357,6 +384,26 @@ def _authenticate_and_limit(request: Request) -> Tuple[dict | None, str, dict]:
         if not api_key_record:
             # Invalid key
             return {"error": "Invalid or inactive API key.", "status_code": 401}, "Unknown", {"source": "error"}
+            
+        # --- PHASE 8: AUTH ENFORCEMENT ---
+        from models import Customer
+        customer = session.query(Customer).filter_by(email=api_key_record.user_email).first()
+        status = customer.status if customer else "active" # Fallback if customer not found? (Shouldn't happen for paid)
+        
+        if status == "past_due" and customer.grace_period_start:
+             deadline = customer.grace_period_start + timedelta(days=3)
+             if datetime.utcnow() > deadline:
+                 return {
+                     "error": "Subscription expired. Please update billing.", 
+                     "grace_ended": True, 
+                     "status_code": 402
+                 }, "Unknown", {"source": "error"}
+
+        elif status in ["canceled", "unpaid"]:
+             return {
+                 "error": "Subscription canceled. Please reactivate.",
+                 "status_code": 402
+             }, "Unknown", {"source": "error"}
         
         # Key is valid. Check Rate Limit for this Plan.
         plan_name = api_key_record.plan
@@ -1671,29 +1718,12 @@ ENV = os.getenv("ENV", "DEV")  # defaults to DEV if ENV not set
 if ENV.upper() == "DEV":
     STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LOCAL")
 else:
-    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET_LIVE")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-def _init_webhook_events_table():
-    """Ensure the webhook_events table exists in analytics.db."""
+def _log_webhook_event(event_type: str, customer_id: str, email: str, payload: dict):
+    """Log raw Stripe webhook to DB for debugging/audit."""
     with _db_connect() as conn:
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS webhook_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            customer_id TEXT,
-            email TEXT,
-            payload TEXT
-        );
-        """)
-        conn.commit()
-
-_init_webhook_events_table()
-
-def _log_webhook_event(event_type: str, customer_id: str | None, email: str | None, payload: dict):
-    """Insert a webhook event into analytics.db (truncated payload for safety)."""
-    try:
-        with _db_connect() as conn:
+        try:
             conn.execute(
                 "INSERT INTO webhook_events (ts, event_type, customer_id, email, payload) VALUES (?, ?, ?, ?, ?)",
                 (
@@ -1705,8 +1735,8 @@ def _log_webhook_event(event_type: str, customer_id: str | None, email: str | No
                 ),
             )
             conn.commit()
-    except Exception as e:
-        print("[STRIPE LOGGING ERROR]", e)
+        except Exception as e:
+            print("[STRIPE LOGGING ERROR]", e)
 
 @app.post("/stripe/webhook")
 async def stripe_webhook_listener(request: Request, background_tasks: BackgroundTasks):
@@ -1837,15 +1867,26 @@ async def stripe_webhook_listener(request: Request, background_tasks: Background
             stripe_customer_id = data.get("customer")
             cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
             if cust:
-                cust.status = "payment_failed"
+                cust.status = "past_due"
+                cust.grace_period_start = datetime.utcnow()
                 session.commit()
-                print(f"[DB] Customer {cust.email} marked payment_failed")
+                print(f"[DB] Customer {cust.email} marked past_due (Grace Period Started)")
+
+        elif event_type == "invoice.payment_succeeded":
+            stripe_customer_id = data.get("customer")
+            cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if cust:
+                cust.status = "active"
+                cust.grace_period_start = None
+                session.commit()
+                print(f"[DB] Customer {cust.email} marked active (Grace Period Cleared)")
 
         elif event_type == "customer.subscription.deleted":
             stripe_customer_id = data.get("customer")
             cust = session.query(Customer).filter_by(stripe_customer_id=stripe_customer_id).first()
             if cust:
                 cust.status = "canceled"
+                cust.grace_period_start = None
                 session.commit()
                 print(f"[DB] Customer {cust.email} marked canceled")
 
@@ -2283,6 +2324,9 @@ def user_dashboard(request: Request):
   .links{{margin-top:20px;text-align:center;font-size:13px}}
   .btn-rotate{{background:var(--line);color:var(--fg);border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:12px;margin-top:10px;width:100%}}
   .btn-rotate:hover{{background:#2d3b4f}}
+  .banner{{padding:12px;margin-bottom:16px;border-radius:6px;font-weight:600;text-align:center}}
+  .banner.warning{{background:rgba(234,179,8,0.2);color:#fbbf24;border:1px solid rgba(234,179,8,0.3)}}
+  .banner.danger{{background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.3)}}
   a{{color:var(--muted)}}
 </style>
 </head>
@@ -2291,6 +2335,13 @@ def user_dashboard(request: Request):
     <div class="card">
       <h1>My Subscription</h1>
       <h2>{ctx['email']}</h2>
+      
+      <!-- PHASE 8: DASHBOARD BANNERS -->
+      {'<div class="banner warning">⚠️ Payment Issue — You have ' + str(ctx["days_left"]) + ' days remaining before access pauses.</div>' if ctx["status"] == "past_due" and ctx["days_left"] is not None else ""}
+      
+      {'<div class="banner danger">⛔ Access Paused — Update billing to restore your API key.</div>' if ctx["status"] == "past_due" and ctx["days_left"] is None else ""}
+      
+      {'<div class="banner danger">❌ Subscription Canceled.</div>' if ctx["status"] == "canceled" else ""}
       
       <div id="key-box" class="key-box">{ctx['masked_key']}</div>
       <button id="rotate-btn" class="btn-rotate">🔄 Rotate API Key</button>

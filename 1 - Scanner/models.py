@@ -50,6 +50,7 @@ class Customer(Base):
     api_key_hash = Column(String(128), nullable=True)
     tier = Column(String(50), default="free")
     status = Column(String(50), default="inactive")
+    grace_period_start = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
