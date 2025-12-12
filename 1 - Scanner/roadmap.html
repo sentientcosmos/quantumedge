@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,56 +8,274 @@
 
   <!-- >>> INSERT: CORE DARK THEME (BEGIN) -->
   <style>
-    :root{
-      --bg:#0b1220;--panel:#111827;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;
-      --accent:#0b5bd7;--accent-600:#0a51c2;--focus:#93c5fd;
-      --chip-ok:#10b981;--chip-warn:#f59e0b;--chip-danger:#ef4444;
-      --chip-team:#2563eb;--chip-enterprise:#6b7280;--chip-indie:#6366f1;--chip-pro:#f59e0b;
+    :root {
+      --bg: #0b1220;
+      --panel: #111827;
+      --fg: #e8eef6;
+      --muted: #9aa7b8;
+      --line: #233044;
+      --accent: #0b5bd7;
+      --accent-600: #0a51c2;
+      --focus: #93c5fd;
+      --chip-ok: #10b981;
+      --chip-warn: #f59e0b;
+      --chip-danger: #ef4444;
+      --chip-team: #2563eb;
+      --chip-enterprise: #6b7280;
+      --chip-indie: #6366f1;
+      --chip-pro: #f59e0b;
     }
-    html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
-    a{color:#a7c5ff;text-decoration:none}
-    a:hover{text-decoration:underline}
-    .wrap{max-width:1160px;margin:40px auto;padding:0 16px}
-    .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
-    .title{font-size:28px;font-weight:800;line-height:1.2}
-    .tag{display:inline-block;border:1px solid var(--line);background:#0e1626;
-      padding:4px 8px;border-radius:999px;font-size:12px;margin-left:8px}
-    nav[aria-label]{display:flex;gap:14px}
-    nav[aria-label] a{padding:6px 8px;border-radius:8px}
 
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:18px 0}
-    .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start}
-    .phase h3{margin:2px 0 8px}
-    .pill{display:inline-block;font-size:11px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);
-      background:#0e1626;margin-left:8px}
-    .ok{color:#6be59b;border-color:#1e824c;background:#0e1b14}
-    .todo{color:#b7c3d6;border-color:#3b4556;background:#0e1626}
-    .eta{font-size:12px;color:var(--muted);margin:4px 0 8px}
-    ul{margin:8px 0 12px 18px}
-    .btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid var(--line);
-      background:#10151b;color:var(--fg);font-weight:700;cursor:pointer}
-    .btn:hover{border-color:var(--accent);color:var(--focus)}
-    .btn-primary{background:var(--accent);color:#06121f;border-color:var(--accent)}
-    .btn-primary:hover{background:var(--accent-600);border-color:var(--accent-600)}
-    .btn-small{padding:8px 12px;font-size:.9rem}
-    .tier{display:inline-block;padding:4px 8px;margin-right:6px;border-radius:8px;
-      font-size:12px;font-weight:600;color:#eaf2ff}
-    .free{background:var(--chip-ok)}.indie{background:var(--chip-indie)}.pro{background:var(--chip-pro)}
-    .team{background:var(--chip-team)}.enterprise{background:var(--chip-enterprise)}.lifetime{background:var(--chip-danger)}
-    .quota-pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#111827;border:1px solid var(--line);
-      color:var(--fg);font-size:12px;font-weight:600}
+    html,
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Inter, system-ui, Segoe UI, Arial, sans-serif
+    }
+
+    a {
+      color: #a7c5ff;
+      text-decoration: none
+    }
+
+    a:hover {
+      text-decoration: underline
+    }
+
+    .wrap {
+      max-width: 1160px;
+      margin: 40px auto;
+      padding: 0 16px
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px
+    }
+
+    .title {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.2
+    }
+
+    .tag {
+      display: inline-block;
+      border: 1px solid var(--line);
+      background: #0e1626;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      margin-left: 8px
+    }
+
+    nav[aria-label] {
+      display: flex;
+      gap: 14px
+    }
+
+    nav[aria-label] a {
+      padding: 6px 8px;
+      border-radius: 8px
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      margin: 18px 0
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      align-items: start
+    }
+
+    .phase h3 {
+      margin: 2px 0 8px
+    }
+
+    .pill {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #0e1626;
+      margin-left: 8px
+    }
+
+    .ok {
+      color: #6be59b;
+      border-color: #1e824c;
+      background: #0e1b14
+    }
+
+    .todo {
+      color: #b7c3d6;
+      border-color: #3b4556;
+      background: #0e1626
+    }
+
+    .eta {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 4px 0 8px
+    }
+
+    ul {
+      margin: 8px 0 12px 18px
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #10151b;
+      color: var(--fg);
+      font-weight: 700;
+      cursor: pointer
+    }
+
+    .btn:hover {
+      border-color: var(--accent);
+      color: var(--focus)
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #06121f;
+      border-color: var(--accent)
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-600);
+      border-color: var(--accent-600)
+    }
+
+    .btn-small {
+      padding: 8px 12px;
+      font-size: .9rem
+    }
+
+    .tier {
+      display: inline-block;
+      padding: 4px 8px;
+      margin-right: 6px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #eaf2ff
+    }
+
+    .free {
+      background: var(--chip-ok)
+    }
+
+    .indie {
+      background: var(--chip-indie)
+    }
+
+    .pro {
+      background: var(--chip-pro)
+    }
+
+    .team {
+      background: var(--chip-team)
+    }
+
+    .enterprise {
+      background: var(--chip-enterprise)
+    }
+
+    .lifetime {
+      background: var(--chip-danger)
+    }
+
+    .quota-pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid var(--line);
+      color: var(--fg);
+      font-size: 12px;
+      font-weight: 600
+    }
+
     /* Modal overlay + blur */
-    .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;
-      background:rgba(11,18,32,0.75);backdrop-filter:blur(6px);display:none;
-      align-items:center;justify-content:center;z-index:1000;animation:fadeIn .3s ease forwards;}
-    .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:420px;width:90%;}
-    .modal h3{margin-top:0;margin-bottom:10px}
-    .modal form{display:flex;flex-direction:column;gap:10px}
-    .modal input,.modal textarea{border:1px solid var(--line);border-radius:8px;
-      background:#0b1320;color:var(--fg);padding:8px 10px;font-size:14px}
-    .modal button{margin-top:6px}
-    .success-msg{display:none;text-align:center;color:#6be59b;margin-top:10px}
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(11, 18, 32, 0.75);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      animation: fadeIn .3s ease forwards;
+    }
+
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 420px;
+      width: 90%;
+    }
+
+    .modal h3 {
+      margin-top: 0;
+      margin-bottom: 10px
+    }
+
+    .modal form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px
+    }
+
+    .modal input,
+    .modal textarea {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0b1320;
+      color: var(--fg);
+      padding: 8px 10px;
+      font-size: 14px
+    }
+
+    .modal button {
+      margin-top: 6px
+    }
+
+    .success-msg {
+      display: none;
+      text-align: center;
+      color: #6be59b;
+      margin-top: 10px
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0
+      }
+
+      to {
+        opacity: 1
+      }
+    }
   </style>
   <!-- <<< INSERT: CORE DARK THEME (END) -->
 </head>
@@ -70,6 +289,7 @@
         <a href="/">Home</a>
         <a href="/roadmap" aria-current="page">Roadmap</a>
         <a href="/pricing">Pricing</a>
+        <a href="/docs">Docs</a>
       </nav>
     </header>
     <!-- <<< HEADER (END) -->
@@ -78,124 +298,133 @@
     <section class="card">
       <h2 style="margin:0 0 8px;font-size:18px;">What to Expect</h2>
       <p style="margin:0">This roadmap evolves with every release. Phase 1 is live today; later phases bring
-         hybrid intelligence, compliance automation, and enterprise readiness.</p>
+        hybrid intelligence, compliance automation, and enterprise readiness.</p>
     </section>
     <!-- <<< INTRO (END) -->
 
     <!-- >>> INSERT: PLANS & LIMITS CARD (ENHANCED BEGIN) -->
-<h2 style="font-size:20px;margin:10px 0 6px">Plans &amp; Limits</h2>
-<section class="card" style="padding:14px">
-  <!-- top row chips injected dynamically -->
-  <div id="tierLimits" style="display:none;gap:8px;flex-wrap:wrap;align-items:center"></div>
+    <h2 style="font-size:20px;margin:10px 0 6px">Plans &amp; Limits</h2>
+    <section class="card" style="padding:14px">
+      <!-- top row chips injected dynamically -->
+      <div id="tierLimits" style="display:none;gap:8px;flex-wrap:wrap;align-items:center"></div>
 
-  <!-- info note and fair-use tag -->
-  <p class="foot" style="font-size:12px;color:var(--muted);margin-top:6px">
-    “Custom” = negotiated limits • <span title="One scan equals a single prompt analysis through the API.">ℹ️ A scan = one prompt evaluation</span><br/>
-    Fair-use policy applies to Lifetime (unlimited) plans, it's designed for individual or small-team use; large-scale automated operations may require Enterprise.
-  </p>
+      <!-- info note and fair-use tag -->
+      <p class="foot" style="font-size:12px;color:var(--muted);margin-top:6px">
+        “Custom” = negotiated limits • <span title="One scan equals a single prompt analysis through the API.">ℹ️ A scan
+          = one prompt evaluation</span><br />
+        Fair-use policy applies to Lifetime (unlimited) plans, it's designed for individual or small-team use;
+        large-scale automated operations may require Enterprise.
+      </p>
 
-  <!-- compare-tiers link -->
-  <p style="margin:8px 0 0;font-size:13px;">
-    <a href="/pricing" style="color:var(--accent);font-weight:600">Compare all tiers →</a>
-  </p>
+      <!-- compare-tiers link -->
+      <p style="margin:8px 0 0;font-size:13px;">
+        <a href="/pricing" style="color:var(--accent);font-weight:600">Compare all tiers →</a>
+      </p>
 
-  <!-- optional progress indicator (kept commented for later) -->
-  <!-- <div class="progress" style="height:6px;background:#1b2233;border-radius:4px;margin-top:8px">
+      <!-- optional progress indicator (kept commented for later) -->
+      <!-- <div class="progress" style="height:6px;background:#1b2233;border-radius:4px;margin-top:8px">
        <div style="width:25%;background:var(--accent);height:6px;border-radius:4px"></div></div> -->
-</section>
-<!-- <<< INSERT: PLANS & LIMITS CARD (ENHANCED END) -->
+    </section>
+    <!-- <<< INSERT: PLANS & LIMITS CARD (ENHANCED END) -->
 
 
     <!-- >>> ROADMAP PHASES (BEGIN) -->
     <section class="grid">
       <!-- PHASE 1 -->
-       <!-- >>> INSERT: PHASE UPDATES — PHASE 1 (BEGIN) -->
-<article class="card phase">
-  <h3>Phase 1 — Guardrails Launch <span class="pill ok">DONE</span></h3>
-  <div><span class="tier free">Free</span> <span class="tier indie">Indie</span></div>
-  <div class="eta"><span class="js-limit" data-tier="Free">Free: …</span> • <span class="js-limit" data-tier="Indie">Indie: …</span></div>
+      <!-- >>> INSERT: PHASE UPDATES — PHASE 1 (BEGIN) -->
+      <article class="card phase">
+        <h3>Phase 1 — Guardrails Launch <span class="pill ok">DONE</span></h3>
+        <div><span class="tier free">Free</span> <span class="tier indie">Indie</span></div>
+        <div class="eta"><span class="js-limit" data-tier="Free">Free: …</span> • <span class="js-limit"
+            data-tier="Indie">Indie: …</span></div>
 
-  <!-- Headline USP (short + tooltip explains depth) -->
-  <ul>
-    <li title="Continuously expanding detection engine combining pattern matching, semantic context, and threat-intelligence scoring.">
-      <strong>Adaptive rule engine with real-time threat scoring</strong>
-    </li>
-    <li>Slack/Discord alerts on high-severity findings</li>
-    <li>Latency & telemetry for performance insight</li>
-  </ul>
+        <!-- Headline USP (short + tooltip explains depth) -->
+        <ul>
+          <li
+            title="Continuously expanding detection engine combining pattern matching, semantic context, and threat-intelligence scoring.">
+            <strong>Adaptive rule engine with real-time threat scoring</strong>
+          </li>
+          <li>Slack/Discord alerts on high-severity findings</li>
+          <li>Latency & telemetry for performance insight</li>
+        </ul>
 
-  <!-- Extra value line (Phase 1 PDF = watermark) -->
-  <p class="muted" style="margin:6px 0 0 0">
-    Includes auto-generated, <em>watermark-protected</em> PDF reports for compliance documentation.
-  </p>
+        <!-- Extra value line (Phase 1 PDF = watermark) -->
+        <p class="muted" style="margin:6px 0 0 0">
+          Includes auto-generated, <em>watermark-protected</em> PDF reports for compliance documentation.
+        </p>
 
-  <div class="cta">
-    <button class="btn btn-small" onclick="window.location.href='/'">Try Scanner</button>
-    <button class="btn btn-small" data-checkout="lifetime" type="button">Limited-Time Lifetime</button>
-  </div>
-</article>
-<!-- <<< INSERT: PHASE UPDATES — PHASE 1 (END) -->
+        <div class="cta">
+          <button class="btn btn-small" onclick="window.location.href='/'">Try Scanner</button>
+          <button class="btn btn-small" data-checkout="lifetime" type="button">Limited-Time Lifetime</button>
+        </div>
+      </article>
+      <!-- <<< INSERT: PHASE UPDATES — PHASE 1 (END) -->
 
 
 
       <!-- PHASE 2 -->
- 	<!-- >>> INSERT: PHASE UPDATES — PHASE 2 (BEGIN) -->
-<article class="card phase">
-  <h3>Phase 2 — Hybrid Intelligence <span class="pill todo">IN PROGRESS</span></h3>
-  <div><span class="tier pro">Pro</span> <span class="tier indie">Indie</span> <span class="tier lifetime">Lifetime</span></div>
-  <div class="eta"><span class="js-limit" data-tier="Pro">Pro: …</span> • <span class="js-limit" data-tier="Indie">Indie: …</span> • <span class="js-limit" data-tier="Lifetime">Lifetime: …</span></div>
+      <!-- >>> INSERT: PHASE UPDATES — PHASE 2 (BEGIN) -->
+      <article class="card phase">
+        <h3>Phase 2 — Hybrid Intelligence <span class="pill todo">IN PROGRESS</span></h3>
+        <div><span class="tier pro">Pro</span> <span class="tier indie">Indie</span> <span
+            class="tier lifetime">Lifetime</span></div>
+        <div class="eta"><span class="js-limit" data-tier="Pro">Pro: …</span> • <span class="js-limit"
+            data-tier="Indie">Indie: …</span> • <span class="js-limit" data-tier="Lifetime">Lifetime: …</span></div>
 
-  <ul>
-    <!-- Data-centric phrasing + tooltip -->
-    <li title="Models tuned on known prompt-abuse patterns and evolving incident data; curated rules provide precision, ML adds adaptability.">
-      <strong>Hybrid AI detection: curated threat patterns + data-driven models</strong>
-    </li>
-    <li>Analytics dashboard (severity trends, rule hit rates)</li>
-    <li>Batch export with <strong>audit-ready PDF (no watermark)</strong></li>
-  </ul>
+        <ul>
+          <!-- Data-centric phrasing + tooltip -->
+          <li
+            title="Models tuned on known prompt-abuse patterns and evolving incident data; curated rules provide precision, ML adds adaptability.">
+            <strong>Hybrid AI detection: curated threat patterns + data-driven models</strong>
+          </li>
+          <li>Analytics dashboard (severity trends, rule hit rates)</li>
+          <li>Batch export with <strong>audit-ready PDF (no watermark)</strong></li>
+        </ul>
 
-  <p class="muted" style="margin:6px 0 0 0">
-    Early adaptive learning continually improves detection accuracy over time.
-  </p>
+        <p class="muted" style="margin:6px 0 0 0">
+          Early adaptive learning continually improves detection accuracy over time.
+        </p>
 
- <div class="cta">
-  <button class="btn btn-primary" data-checkout="indie" type="button">Indie Plan (Early)</button>
-  <button class="btn btn-primary" data-checkout="pro" type="button">Buy Pro</button>
-  <button class="btn btn-small" onclick="window.location.href='/__version'">API Docs</button>
- </div>
+        <div class="cta">
+          <button class="btn btn-primary" data-checkout="indie" type="button">Indie Plan (Early)</button>
+          <button class="btn btn-primary" data-checkout="pro" type="button">Buy Pro</button>
+          <button class="btn btn-small" onclick="window.location.href='/__version'">API Docs</button>
+        </div>
 
-</article>
-<!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
+      </article>
+      <!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
 
-<!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
+      <!-- <<< INSERT: PHASE UPDATES — PHASE 2 (END) -->
 
 
       <!-- PHASE 3 -->
       <!-- >>> INSERT: PHASE UPDATES — PHASE 3 (BEGIN) -->
-<article class="card phase">
-  <h3>Phase 3 — Enterprise Compliance Intelligence <span class="pill todo">PLANNED</span></h3>
-  <div><span class="tier team">Team</span> <span class="tier enterprise">Enterprise</span></div>
-  <div class="eta"><span class="js-limit" data-tier="Team">Team: …</span> • <span class="js-limit" data-tier="Enterprise">Enterprise: …</span></div>
+      <article class="card phase">
+        <h3>Phase 3 — Enterprise Compliance Intelligence <span class="pill todo">PLANNED</span></h3>
+        <div><span class="tier team">Team</span> <span class="tier enterprise">Enterprise</span></div>
+        <div class="eta"><span class="js-limit" data-tier="Team">Team: …</span> • <span class="js-limit"
+            data-tier="Enterprise">Enterprise: …</span></div>
 
-  <ul>
-    <li title="Enterprise-grade modules for privacy, audit logging, and post-quantum cryptography policy validation.">
-      <strong>Unified compliance suite for privacy, audit, and PQC readiness</strong>
-    </li>
-    <li>Privacy Redactor (PII masking pre-LLM)</li>
-    <li>Audit Logger (verifiable evidence trails)</li>
-    <li>PQC TLS Checker + SSO & data residency controls</li>
-  </ul>
+        <ul>
+          <li
+            title="Enterprise-grade modules for privacy, audit logging, and post-quantum cryptography policy validation.">
+            <strong>Unified compliance suite for privacy, audit, and PQC readiness</strong>
+          </li>
+          <li>Privacy Redactor (PII masking pre-LLM)</li>
+          <li>Audit Logger (verifiable evidence trails)</li>
+          <li>PQC TLS Checker + SSO & data residency controls</li>
+        </ul>
 
-  <!-- Clean single italic line per your preference -->
-  <p class="muted" style="margin:6px 0 0 0"><em>
-    Available as a bundled suite in Enterprise; individual modules offered as Pro add-ons.
-  </em></p>
+        <!-- Clean single italic line per your preference -->
+        <p class="muted" style="margin:6px 0 0 0"><em>
+            Available as a bundled suite in Enterprise; individual modules offered as Pro add-ons.
+          </em></p>
 
-  <div class="cta">
-    <button class="btn btn-primary btn-small" data-modal="sales">Contact Sales</button>
-  </div>
-</article>
-<!-- <<< INSERT: PHASE UPDATES — PHASE 3 (END) -->
+        <div class="cta">
+          <button class="btn btn-primary btn-small" data-modal="sales">Contact Sales</button>
+        </div>
+      </article>
+      <!-- <<< INSERT: PHASE UPDATES — PHASE 3 (END) -->
 
     </section>
     <!-- <<< ROADMAP PHASES (END) -->
@@ -250,106 +479,106 @@
 
   <!-- >>> SCRIPTS SECTION (BEGIN) -->
   <script>
-  /* ============================================================
-     FETCH LIVE LIMITS FROM /pricing (auto-updates chips)
-     ============================================================ */
-  (function(){
-    const topRow=document.getElementById('tierLimits');
-    function chip(label,val){return `<span class="quota-pill">${label}: ${val}</span>`;}
-    fetch('/pricing')
-      .then(r=>r.ok?r.json():null)
-      .then(data=>{
-        if(!data||!data.model||!Array.isArray(data.model.tiers))return;
-        const limits={};
-        for(const t of data.model.tiers){
-          const name=String(t.name||'').trim().toLowerCase();
-          const lim=t.scan_limit_per_day;
-          limits[name]=typeof lim==='number'?lim.toLocaleString()+'/day':lim;
+    /* ============================================================
+       FETCH LIVE LIMITS FROM /pricing (auto-updates chips)
+       ============================================================ */
+    (function () {
+      const topRow = document.getElementById('tierLimits');
+      function chip(label, val) { return `<span class="quota-pill">${label}: ${val}</span>`; }
+      fetch('/pricing')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data || !data.model || !Array.isArray(data.model.tiers)) return;
+          const limits = {};
+          for (const t of data.model.tiers) {
+            const name = String(t.name || '').trim().toLowerCase();
+            const lim = t.scan_limit_per_day;
+            limits[name] = typeof lim === 'number' ? lim.toLocaleString() + '/day' : lim;
+          }
+          const order = ['Free', 'Indie', 'Pro', 'Team', 'Enterprise', 'Lifetime'];
+          topRow.style.display = 'flex';
+          topRow.innerHTML = order.map(n => chip(n, limits[n.toLowerCase()] || '—')).join(' ');
+          document.querySelectorAll('.js-limit[data-tier]').forEach(el => {
+            const tier = (el.getAttribute('data-tier') || '').toLowerCase();
+            el.textContent = `${el.getAttribute('data-tier')}: ${limits[tier] || '—'}`;
+          });
+        }).catch(() => { });
+    })();
+
+    /* ============================================================
+       STRIPE FRONTEND REDIRECTS
+       ============================================================ */
+    async function startCheckout(endpoint) {
+      const btn = document.activeElement;
+      try {
+        if (btn && btn.tagName === 'BUTTON') btn.disabled = true;
+        const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(err?.detail || `Checkout failed (${res.status})`);
+          if (btn) btn.disabled = false; return;
         }
-        const order=['Free','Indie','Pro','Team','Enterprise','Lifetime'];
-        topRow.style.display='flex';
-        topRow.innerHTML=order.map(n=>chip(n,limits[n.toLowerCase()]||'—')).join(' ');
-        document.querySelectorAll('.js-limit[data-tier]').forEach(el=>{
-          const tier=(el.getAttribute('data-tier')||'').toLowerCase();
-          el.textContent=`${el.getAttribute('data-tier')}: ${limits[tier]||'—'}`;
-        });
-      }).catch(()=>{});
-  })();
-
-  /* ============================================================
-     STRIPE FRONTEND REDIRECTS
-     ============================================================ */
-  async function startCheckout(endpoint){
-    const btn=document.activeElement;
-    try{
-      if(btn&&btn.tagName==='BUTTON')btn.disabled=true;
-      const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
-      if(!res.ok){
-        const err=await res.json().catch(()=>({}));
-        alert(err?.detail||`Checkout failed (${res.status})`);
-        if(btn)btn.disabled=false;return;
+        const data = await res.json();
+        if (!data?.url) { alert('Checkout failed: no URL returned.'); if (btn) btn.disabled = false; return; }
+        window.location.href = data.url;
+      } catch (e) {
+        alert('Network error starting checkout. Please try again.');
+        if (btn) btn.disabled = false;
       }
-      const data=await res.json();
-      if(!data?.url){alert('Checkout failed: no URL returned.');if(btn)btn.disabled=false;return;}
-      window.location.href=data.url;
-    }catch(e){
-      alert('Network error starting checkout. Please try again.');
-      if(btn)btn.disabled=false;
     }
-  }
-  // attach to all buttons with data-checkout
-  document.querySelectorAll('[data-checkout]').forEach(el=>{
-  const plan = el.getAttribute('data-checkout');
-  let endpoint = '';
-  if (plan === 'indie') endpoint = '/buy/indie';
-  else if (plan === 'pro') endpoint = '/buy/pro';
-  else if (plan === 'lifetime') endpoint = '/buy/lifetime';
-  if (endpoint) el.addEventListener('click', () => startCheckout(endpoint));
-});
-
-
-  /* ============================================================
-     MODAL LOGIC (Contact Sales & Partner With Us)
-     ============================================================ */
-  const modals=document.querySelectorAll('.modal-overlay');
-  const openers=document.querySelectorAll('[data-modal]');
-  const closeBtns=document.querySelectorAll('[data-close]');
-
-  // open modal
-  openers.forEach(btn=>{
-    const id=btn.getAttribute('data-modal');
-    btn.addEventListener('click',()=>{
-      document.getElementById(`modal-${id}`).style.display='flex';
+    // attach to all buttons with data-checkout
+    document.querySelectorAll('[data-checkout]').forEach(el => {
+      const plan = el.getAttribute('data-checkout');
+      let endpoint = '';
+      if (plan === 'indie') endpoint = '/buy/indie';
+      else if (plan === 'pro') endpoint = '/buy/pro';
+      else if (plan === 'lifetime') endpoint = '/buy/lifetime';
+      if (endpoint) el.addEventListener('click', () => startCheckout(endpoint));
     });
-  });
-  // close modal
-  closeBtns.forEach(btn=>{
-    btn.addEventListener('click',()=>btn.closest('.modal-overlay').style.display='none');
-  });
-  // close on Esc
-  document.addEventListener('keydown',e=>{
-    if(e.key==='Escape')modals.forEach(m=>m.style.display='none');
-  });
 
-  /* --- Form submissions (POST /feedback, fade out after 6 s) --- */
-  async function sendForm(formId,successId){
-    const form=document.getElementById(formId);
-    const success=document.getElementById(successId);
-    form.addEventListener('submit',async e=>{
-      e.preventDefault();
-      const data=Object.fromEntries(new FormData(form));
-      try{
-        await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-        success.style.display='block';
-        setTimeout(()=>{success.style.display='none';form.closest('.modal-overlay').style.display='none';form.reset();},6000);
-      }catch{alert('Network error — please try again later.');}
+
+    /* ============================================================
+       MODAL LOGIC (Contact Sales & Partner With Us)
+       ============================================================ */
+    const modals = document.querySelectorAll('.modal-overlay');
+    const openers = document.querySelectorAll('[data-modal]');
+    const closeBtns = document.querySelectorAll('[data-close]');
+
+    // open modal
+    openers.forEach(btn => {
+      const id = btn.getAttribute('data-modal');
+      btn.addEventListener('click', () => {
+        document.getElementById(`modal-${id}`).style.display = 'flex';
+      });
     });
-  }
-  sendForm('form-sales','sales-success');
-  sendForm('form-partner','partner-success');
-  /* ============================================================ */
+    // close modal
+    closeBtns.forEach(btn => {
+      btn.addEventListener('click', () => btn.closest('.modal-overlay').style.display = 'none');
+    });
+    // close on Esc
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') modals.forEach(m => m.style.display = 'none');
+    });
+
+    /* --- Form submissions (POST /feedback, fade out after 6 s) --- */
+    async function sendForm(formId, successId) {
+      const form = document.getElementById(formId);
+      const success = document.getElementById(successId);
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(form));
+        try {
+          await fetch('/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+          success.style.display = 'block';
+          setTimeout(() => { success.style.display = 'none'; form.closest('.modal-overlay').style.display = 'none'; form.reset(); }, 6000);
+        } catch { alert('Network error — please try again later.'); }
+      });
+    }
+    sendForm('form-sales', 'sales-success');
+    sendForm('form-partner', 'partner-success');
+    /* ============================================================ */
   </script>
   <!-- <<< SCRIPTS SECTION (END) -->
 </body>
-</html>
 
+</html>
