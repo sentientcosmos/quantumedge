@@ -2161,7 +2161,7 @@ def docs_page():
     Developer Documentation: Auth, Endpoints, Errors, and Rate Limits.
     Renders a unified, dark-themed HTML page inline.
     """
-    base_url = os.getenv("BASE_URL", "https://quantumedge-scanner.onrender.com").rstrip("/")
+    base_url = os.getenv("BASE_URL", "https://qubitgrid.ai").rstrip("/")
     
     # Generate Rate Limits Table dynamically
     rows = ""

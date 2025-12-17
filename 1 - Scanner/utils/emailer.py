@@ -61,7 +61,7 @@ or you will need to contact support.
                 <a href="{dashboard_url}" style="display: inline-block; background-color: #0b5bd7; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500;">Go to Dashboard</a>
             </p>
             <p style="font-size:13px; color:#6b7280; margin-top:16px;">
-                New to QubitGrid? <a href="https://quantumedge-scanner.onrender.com/quickstart" style="color:#0b5bd7;">Read the Quickstart Guide</a>
+                New to QubitGrid? <a href="https://qubitgrid.ai/quickstart" style="color:#0b5bd7;">Read the Quickstart Guide</a>
             </p>
         </div>
     </body>
