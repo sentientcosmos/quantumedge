@@ -229,7 +229,7 @@
     const resultSummary = document.getElementById("resultSummary");
     const resultJSON = document.getElementById("resultJSON");
     const scanLogList = document.getElementById("scanLogList");
-    <!-- >>> FIX: ROTATING EXAMPLES (BEGIN) -->
+
     // Example prompt rotation pool
     const examples = [
       {
@@ -252,62 +252,62 @@
       input.value = choice.text;
       showBanner(choice.label, "info");
     });
-< !-- << < FIX:ROTATING EXAMPLES (END)-- >
 
 
-          < !-- >>> FIX: CLEANED SCAN HANDLER(BEGIN)-- >
-      btnScan.addEventListener("click", async () => {
-        const text = input.value.trim();
-        if (!text) {
-          showBanner("Please enter a prompt to scan.", "warning");
+
+
+    btnScan.addEventListener("click", async () => {
+      const text = input.value.trim();
+      if (!text) {
+        showBanner("Please enter a prompt to scan.", "warning");
+        return;
+      }
+
+      // Prepare UI
+      resultsSection.classList.remove("hidden");
+      severityBadge.textContent = "…";
+      severityBadge.style.backgroundColor = "#3b82f6"; // neutral blue while scanning
+      resultSummary.textContent = "Scanning…";
+
+      try {
+        const resp = await fetch(`/scan?text=${encodeURIComponent(text)}`);
+        const data = await resp.json();
+
+        // Handle free-tier limit (429)
+        if (resp.status === 429 && data.error && data.limit) {
+          showBanner(
+            `⚠️ ${data.error} (${data.limit}/day). Reset: ${data.reset_utc_date}`,
+            "warning"
+          );
+
+          severityBadge.textContent = "Limit Reached";
+          severityBadge.className = "severity-badge high";
+          resultSummary.textContent = data.error;
+          resultJSON.textContent = JSON.stringify(data, null, 2);
           return;
         }
 
-        // Prepare UI
-        resultsSection.classList.remove("hidden");
-        severityBadge.textContent = "…";
-        severityBadge.style.backgroundColor = "#3b82f6"; // neutral blue while scanning
-        resultSummary.textContent = "Scanning…";
+        // Normal successful scan
+        showResultsPanel(data);
+      } catch (err) {
+        resultSummary.textContent = "Scan failed — please try again.";
+        showBanner("Scan failed — see console for details.", "error");
+        console.error(err);
+      }
+    });
 
-        try {
-          const resp = await fetch(`/scan?text=${encodeURIComponent(text)}`);
-          const data = await resp.json();
 
-          // Handle free-tier limit (429)
-          if (resp.status === 429 && data.error && data.limit) {
-            showBanner(
-              `⚠️ ${data.error} (${data.limit}/day). Reset: ${data.reset_utc_date}`,
-              "warning"
-            );
 
-            severityBadge.textContent = "Limit Reached";
-            severityBadge.className = "severity-badge high";
-            resultSummary.textContent = data.error;
-            resultJSON.textContent = JSON.stringify(data, null, 2);
-            return;
-          }
 
-          // Normal successful scan
-          showResultsPanel(data);
-        } catch (err) {
-          resultSummary.textContent = "Scan failed — please try again.";
-          showBanner("Scan failed — see console for details.", "error");
-          console.error(err);
-        }
+    // ================================
+    // Modal open/close
+    // ================================
+    document.querySelectorAll("[data-modal]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = "modal-" + btn.dataset.modal;
+        document.getElementById(id).classList.remove("hidden");
       });
-< !-- << < FIX:CLEANED SCAN HANDLER (END)-- >
-
-
-
-      // ================================
-      // Modal open/close
-      // ================================
-      document.querySelectorAll("[data-modal]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const id = "modal-" + btn.dataset.modal;
-          document.getElementById(id).classList.remove("hidden");
-        });
-      });
+    });
 
     document.querySelectorAll(".overlay").forEach((ov) =>
       ov.addEventListener("click", (e) =>
@@ -315,45 +315,45 @@
       )
     );
 
-      // ================================
-      // Feedback submission → /feedback
-      // ================================
- < !-- >>> INSERT: SHOWBANNER TYPE - BASED ENHANCEMENT(BEGIN)-- >
-      function showBanner(msg, type = "info") {
-        const banner = document.getElementById("statusBanner");
-        banner.textContent = msg;
+    // ================================
+    // Feedback submission → /feedback
+    // ================================
 
-        // Map banner type → color class
-        let colorClass = "banner info"; // default blue-ish
-        if (type === "success") colorClass = "banner success";
-        else if (type === "warning") colorClass = "banner warning";
-        else if (type === "error") colorClass = "banner error";
+    function showBanner(msg, type = "info") {
+      const banner = document.getElementById("statusBanner");
+      banner.textContent = msg;
 
-        banner.className = colorClass;
-        banner.classList.remove("hidden");
-        setTimeout(() => banner.classList.add("hidden"), 6000);
-      }
-      < !-- << < INSERT:SHOWBANNER TYPE-BASED ENHANCEMENT (END)-- >
+      // Map banner type → color class
+      let colorClass = "banner info"; // default blue-ish
+      if (type === "success") colorClass = "banner success";
+      else if (type === "warning") colorClass = "banner warning";
+      else if (type === "error") colorClass = "banner error";
+
+      banner.className = colorClass;
+      banner.classList.remove("hidden");
+      setTimeout(() => banner.classList.add("hidden"), 6000);
+    }
 
 
-        ["talk-form", "sales-form"].forEach((fid) => {
-          const form = document.getElementById(fid);
-          form.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const res = await fetch(form.action, {
-              method: "POST",
-              body: new FormData(form),
-            });
-            form.reset();
-            form.closest(".modal").classList.add("hidden");
-            showBanner(
-              res.ok
-                ? "Message sent successfully ✔️"
-                : "Error sending message ❌",
-              res.ok
-            );
-          });
+
+    ["talk-form", "sales-form"].forEach((fid) => {
+      const form = document.getElementById(fid);
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const res = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
         });
+        form.reset();
+        form.closest(".modal").classList.add("hidden");
+        showBanner(
+          res.ok
+            ? "Message sent successfully ✔️"
+            : "Error sending message ❌",
+          res.ok
+        );
+      });
+    });
     // >>> MODAL CLOSE IMPROVEMENTS (BEGIN)
     document.querySelectorAll(".modal").forEach((modal) => {
       modal.addEventListener("click", (e) => {
