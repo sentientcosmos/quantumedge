@@ -12,7 +12,7 @@
       "name": "Free",
       "label": "Scan & Learn",
       "monthly_price_usd": 0,
-      "scan_limit_per_day": 100,
+      "scan_limit_per_day": 15,
       "purpose": "Let new users instantly see their LLM prompts tested for risk without commitment.",
       "audience": "Experimenting indie devs, hackathon projects, learners.",
       "features": [

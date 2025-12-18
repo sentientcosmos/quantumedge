@@ -2313,7 +2313,7 @@ def quickstart_page():
     """
     Quickstart Guide: Zero to First Scan in 2 minutes.
     """
-    base_url = os.getenv("BASE_URL", "https://quantumedge-scanner.onrender.com").rstrip("/")
+    base_url = os.getenv("BASE_URL", "https://qubitgrid.ai").rstrip("/")
     
     html = f"""<!doctype html>
 <html lang='en'>
