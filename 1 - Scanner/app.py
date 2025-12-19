@@ -1963,11 +1963,13 @@ def _buy_page_html(plan_label: str, plan_code: str) -> str:
 @app.get("/buy/lifetime", response_class=HTMLResponse)
 def buy_lifetime_page():
     """GET page for Limited-Time Lifetime Access (test; no payments)."""
+    if ENV == "PROD": raise HTTPException(status_code=404)
     return HTMLResponse(_buy_page_html("Limited-Time Lifetime Access — Test Checkout", "lifetime"))
 
 @app.get("/buy/indie", response_class=HTMLResponse)
 def buy_indie_page():
     """GET page for Indie Plan (test; no payments)."""
+    if ENV == "PROD": raise HTTPException(status_code=404)
     return HTMLResponse(_buy_page_html("Indie Plan (1000 scans/day) — Test Checkout", "indie"))
 
 @app.post("/buy/intent")
@@ -2638,10 +2640,12 @@ def user_dashboard(request: Request):
 
 @app.get("/__version", response_class=PlainTextResponse)
 def version():
+    if ENV == "PROD": raise HTTPException(status_code=404)
     return f"{APP_VERSION} | FastAPI {fastapi_version}"
 
 @app.get("/health")
 def health():
+    if ENV == "PROD": raise HTTPException(status_code=404)
     return {
         "ok": True,
         "version": APP_VERSION,
@@ -2669,6 +2673,7 @@ async def serve_pricing_page(request: Request):
 
 @app.get("/rules")
 def list_rules():
+    if ENV == "PROD": raise HTTPException(status_code=404)
     out = [
         {"id": rid, "category": cat, "severity": sev, "pattern": rx.pattern, "why": why}
         for (rid, cat, sev, rx, why) in _COMPILED
