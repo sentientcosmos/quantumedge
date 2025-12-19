@@ -1587,8 +1587,8 @@ STRIPE_PRICE_INDIE_ONE = os.getenv("STRIPE_PRICE_INDIE_ONE", "").strip()   # one
 STRIPE_PRICE_INDIE_SUB = os.getenv("STRIPE_PRICE_INDIE_SUB", "").strip()   # monthly $9.99
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "").strip()               # monthly $29.99
 STRIPE_PRICE_LIFETIME  = os.getenv("STRIPE_PRICE_LIFETIME", "").strip()    # one-time $199
-STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "http://127.0.0.1:8000/pricing").strip()
-STRIPE_CANCEL_URL  = os.getenv("STRIPE_CANCEL_URL",  "http://127.0.0.1:8000/pricing").strip()
+STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "https://qubitgrid.ai/pricing").strip()
+STRIPE_CANCEL_URL  = os.getenv("STRIPE_CANCEL_URL",  "https://qubitgrid.ai/pricing").strip()
 
 
 if STRIPE_SECRET_KEY:
@@ -1968,7 +1968,7 @@ def buy_lifetime_page():
 @app.get("/buy/indie", response_class=HTMLResponse)
 def buy_indie_page():
     """GET page for Indie Plan (test; no payments)."""
-    return HTMLResponse(_buy_page_html("Indie Plan (2000 scans/day) — Test Checkout", "indie"))
+    return HTMLResponse(_buy_page_html("Indie Plan (1000 scans/day) — Test Checkout", "indie"))
 
 @app.post("/buy/intent")
 def buy_intent(plan: str = Form(...), email: str = Form(...)):

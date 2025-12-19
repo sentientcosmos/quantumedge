@@ -21,7 +21,7 @@
         "Real-time results in web UI",
         "Health & version checks for transparency",
         "No Slack alerts, no PDF reports, no exports",
-        "100 scans/day soft limit (reset daily)"
+        "15 scans/day soft limit (reset daily)"
       ],
       "ui_notes": "Show progress bar; disable Slack/PDF/CSV; CTA to Indie.",
       "marketing_message": "Try QubitGrid risk-free. Catch your first injection attempt in 30 seconds — no credit card required."
@@ -29,7 +29,7 @@
     {
       "name": "Indie",
       "label": "Build Responsibly",
-      "monthly_price_usd": 9,
+      "monthly_price_usd": 19.99,
       "scan_limit_per_day": 1000,
       "purpose": "Empower indie developers and solopreneurs to ship AI features with basic safety telemetry and alerts.",
       "audience": "Indie devs, micro-SaaS founders, freelancers embedding GPT APIs.",
@@ -103,7 +103,7 @@
     {
       "name": "Lifetime",
       "label": "Founding Supporter",
-      "one_time_price_usd": 149,
+      "one_time_price_usd": 199,
       "scan_limit_per_day": 5000,
       "availability": "Limited to 100 users or first 30 days after launch",
       "purpose": "Reward early believers and bootstrap cash flow during launch.",
@@ -127,7 +127,7 @@
       "Include pre-audit disclaimer on pages & PDFs"
     ],
     "upgrade_triggers": {
-      "Free": "Hits 100/day cap or needs Slack alerts",
+      "Free": "Hits 15/day cap or needs Slack alerts",
       "Indie": "Needs PDF sample or analytics",
       "Pro": "Needs unwatermarked PDF and audit mapping",
       "Team": "Needs shared keys and custom branding",

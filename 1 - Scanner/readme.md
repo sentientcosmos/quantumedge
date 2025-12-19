@@ -56,7 +56,7 @@ uvicorn app:app --reload --port 8000
 
 - The backend loads the authoritative tier model from `PRICING_MODEL_CONTEXT.json` at startup.
 - `GET /pricing` returns the model plus the resolved Free daily limit (env `FREE_DAILY_LIMIT` overrides).
-- `roadmap.html` fetches `/pricing` and decorates tier badges with **daily scan limits** (e.g., Free 100/day, Pro 5000/day).
+- `roadmap.html` fetches `/pricing` and decorates tier badges with **daily scan limits** (e.g., Free 15/day, Pro 5000/day).
 - Enterprise/Team display “custom”.
 - Disclaimer: “QubitGrid™ provides pre-audit readiness tools only; not a certified audit.”
 
@@ -101,7 +101,7 @@ This update introduces the new roadmap interface and ties it directly to live `/
 \*\*Disclaimer:\*\* QubitGrid™ provides pre-audit readiness tools only; not a certified audit.
 
 ## Update — 2025-Sep-10
-MVP1 live on Render at https://quantumedge-scanner.onrender.com
+MVP1 live at https://qubitgrid.ai
 Endpoints: /scan, /report, /feedback
 
 
