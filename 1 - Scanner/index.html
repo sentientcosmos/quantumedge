@@ -40,8 +40,12 @@
       <section class="card">
         <h2 class="title">Prompt Injection Scanner</h2>
         <p class="subtitle">
-          Try QubitGrid’s AI Prompt Security Scanner — paste a prompt to test
-          for hidden injection risks.
+          This browser sandbox is the Free plan for testing prompts. Paid plans unlock a production API key for
+          integrating into your app, plus audit-ready PDF reports you can share with clients or auditors and usage
+          analytics.
+          <br><br>
+          Use QubitGrid before or alongside any LLM call with a simple API key integration to flag prompt injection,
+          unsafe instructions, and data exfiltration risks.
         </p>
 
         <!-- Text input area -->
@@ -85,10 +89,16 @@
       <!-- ====================================================== -->
       <aside class="card hero-aside">
         <h3 class="title">For Teams &amp; Enterprises</h3>
-        <p>
-          Enterprise-grade guardrails, team dashboards, and compliance modules
-          are coming soon. Talk to us or request early access.
-        </p>
+        <h3 style="margin-bottom:12px;font-size:16px;color:var(--accent)">Integrate in under 2 minutes</h3>
+        <ul style="margin:0 0 16px 20px;font-size:13px;color:#c6d1de;line-height:1.6">
+          <li>1) Choose a plan</li>
+          <li>2) Receive your API key by email</li>
+          <li>3) Call GET /scan from your app</li>
+        </ul>
+        <div style="display:flex;gap:10px;margin-bottom:24px">
+          <a href="/quickstart" class="btn btn-small" style="text-decoration:none">Quickstart</a>
+          <a href="/docs" class="btn btn-small" style="text-decoration:none">Docs</a>
+        </div>
 
         <div class="button-group">
           <button class="btn btn-accent" data-modal="talk">Talk to Us</button>
@@ -107,8 +117,11 @@
           <li><strong>Enterprise:</strong> Custom SLA</li>
         </ul>
         <!-- >>> INSERT: PRICING & UPGRADES (BEGIN) -->
-        <h4 style="margin-top:20px">Pricing &amp; Upgrades</h4>
-        <p class="subtitle">Start free — upgrade as your needs grow.</p>
+        <h4 style="margin-top:20px">Scanner Plans (Phase 1 Live)</h4>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
+          Other modules (Redactor, Audit Logger, PQC) will be add-ons or bundles later. You keep one account and one
+          billing relationship, and you will not pay twice for the same base access.
+        </p>
 
         <div class="pricing-grid">
           <!-- Free Plan (non-clickable) -->
@@ -129,6 +142,9 @@
               <li>✅ Automate prompt scans via API key</li>
               <li>✅ Watermarked PDF reports for clients</li>
             </ul>
+            <p style="font-size:12px;color:#9aa7b8;margin:0 0 12px 12px;line-height:1.4">
+              API key emailed immediately after checkout. Includes PDF reports you can share with clients or teammates.
+            </p>
             <!-- >>> Replace this button -->
             <button class="btn-primary" data-checkout="indie">Buy Indie</button>
             <!-- <<< -->
@@ -142,6 +158,9 @@
               <li>✅ Priority queue &amp; extended analytics</li>
               <li>✅ Audit-ready PDF summaries (no watermark)</li>
             </ul>
+            <p style="font-size:12px;color:#9aa7b8;margin:0 0 12px 12px;line-height:1.4">
+              Full API access plus unwatermarked, audit-ready PDF reports for security and compliance reviews.
+            </p>
             <!-- >>> Replace this button -->
             <button class="btn-primary" data-checkout="pro">Buy Pro</button>
             <!-- <<< -->

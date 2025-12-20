@@ -2203,6 +2203,9 @@ def docs_page():
   <header>
     <h1>QubitGrid™ Developer Documentation</h1>
     <p>AI Prompt Injection & Safety Scanner API for LLM apps.</p>
+    <div style="background:#131c2e;border:1px solid #233044;padding:12px;border-radius:8px;margin:20px 0;font-size:13px">
+      <strong>Note:</strong> The Home page provides a Free plan browser sandbox for testing prompts. Production integrations require an API key and use the endpoints below.
+    </div>
   </header>
 
   <h2 id="auth">Authentication</h2>
@@ -2339,7 +2342,11 @@ def quickstart_page():
 <div class="wrap">
   <div style="margin-bottom:20px;font-size:14px"><a href="/">← Home</a></div>
   <h1>QubitGrid™ Quickstart</h1>
-  <p class="sub">Go from zero to first scan in under 2 minutes.</p>
+  <p class="sub" style="margin-bottom:16px">Go from zero to first scan in under 2 minutes.</p>
+  <p style="margin-bottom:30px;font-size:13px;color:#8ba2b8">
+    If you are just testing prompts, use the Home sandbox.<br>
+    If you are integrating QubitGrid into an app, start here.
+  </p>
 
   <div class="step">
     <h3>1. Get an API Key</h3>
