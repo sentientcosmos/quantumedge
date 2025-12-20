@@ -1713,6 +1713,49 @@ from fastapi import Request, HTTPException
 import stripe
 import os
 
+# >>> INSERT: EMAIL TASK (BEGIN)
+# >>> INSERT: EMAIL TASK (BEGIN)
+def send_email_task_wrapper(email: str, plain_key: str, tier: str):
+    """
+    Background Task: Sends email via utils.emailer.
+    Retries once immediately after 2 seconds on failure.
+    Final failure updates Customer record.
+    """
+    from utils.emailer import send_onboarding_email
+    from models import SessionLocal, Customer
+    import time
+    
+    # Attempt 1
+    try:
+        send_onboarding_email(email, plain_key, tier)
+        return
+    except Exception as e1:
+        print(f"[EMAIL TASK] Attempt 1 failed for {email}: {e1}")
+        time.sleep(2)
+        
+        # Attempt 2
+        try:
+            print(f"[EMAIL TASK] Retrying for {email}...")
+            send_onboarding_email(email, plain_key, tier)
+            return
+        except Exception as e2:
+            print(f"[EMAIL TASK ERROR] Final failure for {email}: {e2}")
+            # Mark failure in DB
+            session = SessionLocal()
+            try:
+                cust = session.query(Customer).filter_by(email=email).first()
+                if cust:
+                    cust.email_needs_retry = True
+                    cust.email_last_error = f"Final error: {str(e2)}"
+                    session.commit()
+                    print(f"[DB] Customer {email} marked for email retry.")
+            except Exception as db_e:
+                print(f"[DB ERROR] updating customer {email}: {db_e}")
+            finally:
+                session.close()
+# <<< INSERT: EMAIL TASK (END)
+# <<< INSERT: EMAIL TASK (END)
+
 # Decide whether you're running locally or on Render
 ENV = os.getenv("ENV", "DEV")  # defaults to DEV if ENV not set
 if ENV.upper() == "DEV":
@@ -1856,8 +1899,7 @@ async def stripe_webhook_listener(request: Request, background_tasks: Background
                         # --- PHASE 7: EMAIL DELIVERY ---
                         # Send the PLAINTEXT key to the user immediately.
                         # This is the ONLY time we have access to it.
-                        from utils.emailer import send_onboarding_email
-                        background_tasks.add_task(send_onboarding_email, email, plain_key, canonical_tier)
+                        background_tasks.add_task(send_email_task_wrapper, email, plain_key, canonical_tier)
                         print(f"[EMAIL] Queued onboarding email for {email}")
                         
                     else:
@@ -2524,6 +2566,23 @@ def user_dashboard(request: Request):
     
     # Fetch usage stats (no side-effects)
     stats = _get_paid_usage_stats(ctx["key_hash"], ctx["plan"])
+
+    # >>> EMAIL DELIVERY FAILURE BANNER
+    cust = None
+    try:
+        from models import SessionLocal, Customer
+        db = SessionLocal()
+        cust = db.query(Customer).filter_by(email=ctx["email"]).first()
+        if cust and cust.email_needs_retry:
+            # We don't automatically clear the flag; user must take action (rotate/contact).
+            # The dashboard shows the warning until the issue is resolved (e.g. by rotation which issues new key+email).
+            pass
+    except Exception as e:
+        print("[DASHBOARD CHECK ERROR]", e)
+    finally:
+        if 'db' in locals(): db.close()
+
+    # Render Dashboard
     
     # Render Dashboard
     return HTMLResponse(f"""<!doctype html>
@@ -2566,6 +2625,8 @@ def user_dashboard(request: Request):
       {'<div class="banner danger">⛔ Access Paused — Update billing to restore your API key.</div>' if ctx["status"] == "past_due" and ctx["days_left"] is None else ""}
       
       {'<div class="banner danger">❌ Subscription Canceled.</div>' if ctx["status"] == "canceled" else ""}
+
+      {'<div class="banner danger">⚠️ Email Delivery Failed — We could not email your API key. Please <strong>Rotate API Key</strong> below to receive a new one, or contact support@qubitgrid.ai.</div>' if cust and cust.email_needs_retry else ""}
       
       <div id="key-box" class="key-box">{ctx['masked_key']}</div>
       <button id="rotate-btn" class="btn-rotate">🔄 Rotate API Key</button>

@@ -9,7 +9,7 @@ Purpose:
 """
 
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
@@ -48,6 +48,8 @@ class Customer(Base):
     stripe_customer_id = Column(String(64), unique=True, nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     api_key_hash = Column(String(128), nullable=True)
+    email_needs_retry = Column(Boolean, default=False)
+    email_last_error = Column(Text, nullable=True)
     tier = Column(String(50), default="free")
     status = Column(String(50), default="inactive")
     grace_period_start = Column(DateTime, nullable=True)
@@ -122,9 +124,29 @@ class APIKey(Base):
 def init_db():
     """
     Creates all database tables if they don't already exist.
+    Also performs auto-migration for missing columns (email_needs_retry, email_last_error).
     Call this once at app startup.
     """
     Base.metadata.create_all(bind=engine)
+    
+    # Auto-migration for existing SQLite DBs
+    with engine.connect() as conn:
+        try:
+            # Check existing columns in customers table
+            # PRAGMA table_info returns: (cid, name, type, notnull, dflt_value, pk)
+            columns = [row[1] for row in conn.execute(text("PRAGMA table_info(customers)"))]
+            
+            if "email_needs_retry" not in columns:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN email_needs_retry BOOLEAN DEFAULT 0"))
+                print("[DB MIGRATION] Added email_needs_retry column")
+                
+            if "email_last_error" not in columns:
+                conn.execute(text("ALTER TABLE customers ADD COLUMN email_last_error TEXT"))
+                print("[DB MIGRATION] Added email_last_error column")
+                
+        except Exception as e:
+            print(f"[DB MIGRATION ERROR] {e}")
+
     print("[DB] Initialized all tables successfully.")
 
 
