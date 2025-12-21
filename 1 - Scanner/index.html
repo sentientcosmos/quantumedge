@@ -207,6 +207,7 @@
     <div class="modal-content">
       <h2>Talk to Us</h2>
       <form id="talk-form" action="/feedback" method="post">
+        <input type="hidden" name="source" value="Talk to Us" />
         <input type="text" name="name" placeholder="Your Name" required />
         <input type="email" name="email" placeholder="Your Email" required />
         <textarea name="message" rows="4" placeholder="How can we help?"></textarea>
@@ -220,6 +221,7 @@
     <div class="modal-content">
       <h2>Contact Sales</h2>
       <form id="sales-form" action="/feedback" method="post">
+        <input type="hidden" name="source" value="Contact Sales" />
         <input type="text" name="company" placeholder="Company Name" />
         <input type="email" name="email" placeholder="Work Email" required />
         <textarea name="message" rows="4" placeholder="Tell us about your use case …"></textarea>

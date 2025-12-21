@@ -1,6 +1,7 @@
 import os
 import smtplib
 from email.message import EmailMessage
+from datetime import datetime
 
 def send_onboarding_email(to_email: str, plaintext_key: str, tier: str):
     """
@@ -124,3 +125,73 @@ Questions? Reply to this email or contact {from_email}.
         server.send_message(msg)
     
     print(f"[EMAIL] Sent onboarding email to {actual_recipient}")
+
+def send_feedback_email(source: str, name: str, email: str, message: str, meta: dict = None):
+    """
+    Sends a website lead/feedback notification to the internal team.
+    - ENV=DEV: Redirects to DEV_EMAIL_TO
+    - ENV=PROD: Sends to FEEDBACK_EMAIL_TO
+    """
+    env = os.getenv("ENV", "DEV").upper()
+    
+    # Config
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", 587))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASS")
+    smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+    
+    feedback_to = os.getenv("FEEDBACK_EMAIL_TO", "feedback@qubitgrid.ai")
+    from_email = os.getenv("SUPPORT_EMAIL_FROM", "support@qubitgrid.ai")
+    
+    # Dev routing
+    actual_recipient = feedback_to
+    if env == "DEV":
+        dev_to = os.getenv("DEV_EMAIL_TO")
+        if not dev_to:
+            print(f"[EMAIL DEV] Skipping feedback email (DEV_EMAIL_TO missing)")
+            return
+        actual_recipient = dev_to
+        
+    if not all([smtp_host, smtp_user, smtp_pass]):
+        print("[EMAIL ERROR] Missing SMTP config. Cannot send feedback.")
+        return
+
+    # Build Message
+    msg = EmailMessage()
+    msg["Subject"] = f"Website Lead — {source} — {email}"
+    msg["From"] = from_email
+    msg["To"] = actual_recipient
+    if email and "@" in email:
+        msg["Reply-To"] = email
+        
+    # Body
+    meta_str = ""
+    if meta:
+        meta_str = "\n".join([f"{k}: {v}" for k, v in meta.items()])
+        
+    body = f"""
+New submission from {source}
+----------------------------------------
+Timestamp: {datetime.utcnow().isoformat()}Z
+Name: {name or "N/A"}
+Email: {email or "N/A"}
+
+Message:
+{message or "(No message)"}
+
+----------------------------------------
+{meta_str}
+"""
+    msg.set_content(body.strip())
+    
+    # Send
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            if smtp_use_tls:
+                server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        print(f"[EMAIL] Sent feedback from {email} to {actual_recipient}")
+    except Exception as e:
+        print(f"[EMAIL ERROR] Failed to send feedback: {e}")

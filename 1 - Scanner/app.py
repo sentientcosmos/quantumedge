@@ -2139,29 +2139,70 @@ DATASETS_DIR = pathlib.Path(__file__).parent / "datasets"
 DATASETS_DIR.mkdir(exist_ok=True)
 
 class FeedbackInput(BaseModel):
-    text: str
-    label: str  # "safe" or "unsafe"
+    # ML Feedback Fields
+    text: Optional[str] = None
+    label: Optional[str] = None  # "safe", "unsafe"
+    
+    # Contact Form Fields
+    name: Optional[str] = None
+    email: Optional[str] = None
+    message: Optional[str] = None
+    company: Optional[str] = None
+    
+    # Shared
     reason: Optional[str] = None
+    source: Optional[str] = None
 
 @app.post("/feedback")
-def feedback(item: FeedbackInput, x_api_key: Optional[str] = Header(None)) -> Dict[str, Any]:
-    _check_api_key(x_api_key)
+def feedback(item: FeedbackInput, background_tasks: BackgroundTasks, x_api_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    # Only enforce API key for ML feedback (scanning/labeling)
+    if item.text or item.label:
+        _check_api_key(x_api_key)
 
-    if item.label not in ("safe", "unsafe"):
+    # Validate ML label if present (strict on ML data quality)
+    if item.label and item.label not in ("safe", "unsafe"):
         raise HTTPException(status_code=400, detail="label must be 'safe' or 'unsafe'")
 
+    # Determine type
+    is_contact = (item.email is not None or item.message is not None)
+    
+    # 1. Append to JSONL (Persistence / Fallback)
     rec = {
         "ts": datetime.utcnow().isoformat() + "Z",
-        "text": item.text,
-        "label": item.label,
-        "reason": item.reason,
+        "text": item.text or item.message,
+        "label": item.label or "lead", 
+        "reason": item.reason or (f"name={item.name}, company={item.company}" if is_contact else None),
         "source": "feedback",
+        "email": item.email 
     }
-    with open(DATASETS_DIR / "scanner.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    
+    try:
+        with open(DATASETS_DIR / "scanner.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[FEEDBACK ERROR] Could not save to jsonl: {e}")
+
+    # 2. Key Action: Send Email for Leads (Async)
+    if is_contact:
+        # Determine source (Exclusive > Inferred)
+        source = item.source
+        if not source:
+            source = "Contact Form"
+            if item.company: 
+                source = "Sales Inquiry"
+        
+        from utils.emailer import send_feedback_email
+        background_tasks.add_task(
+            send_feedback_email,
+            source=source,
+            name=item.name,
+            email=item.email,
+            message=item.message,
+            meta={"Company": item.company} if item.company else {}
+        )
 
     try:
-        log_event("feedback_saved", {"label": item.label})
+        log_event("feedback_saved", {"label": rec["label"], "is_contact": is_contact})
     except Exception:
         pass
 
