@@ -471,9 +471,9 @@
     window.addEventListener("DOMContentLoaded", () => {
       const params = new URLSearchParams(window.location.search);
       if (params.has("success")) {
-        showBanner("Payment successful ✔️", true);
+        showBanner("Payment successful ✔️", "success");
       } else if (params.has("canceled")) {
-        showBanner("Payment canceled ❌", false);
+        showBanner("Payment canceled ❌", "error");
       }
     });
 
