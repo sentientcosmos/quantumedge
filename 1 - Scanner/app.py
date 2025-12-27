@@ -1784,8 +1784,17 @@ def _log_webhook_event(event_type: str, customer_id: str, email: str, payload: d
 @app.post("/stripe/webhook")
 async def stripe_webhook_listener(request: Request, background_tasks: BackgroundTasks):
     # 1) Verify signature
+    # Debug log (never print full secret)
+    has_secret = bool(STRIPE_WEBHOOK_SECRET)
+    print(f"[STRIPE WEBHOOK] Secret loaded? {has_secret} | Method=POST | Headers={dict(request.headers)}")
+
+    if not STRIPE_WEBHOOK_SECRET:
+        print("[STRIPE CRITICAL] STRIPE_WEBHOOK_SECRET is missing. Returning 500.")
+        raise HTTPException(status_code=500, detail="Server misconfiguration: missing webhook secret")
+
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
+    
     try:
         event = stripe.Webhook.construct_event(
             payload=payload,
@@ -1793,9 +1802,15 @@ async def stripe_webhook_listener(request: Request, background_tasks: Background
             secret=STRIPE_WEBHOOK_SECRET,
         )
     except ValueError:
+        print("[STRIPE ERROR] Invalid payload")
         raise HTTPException(status_code=400, detail="Invalid payload")
     except stripe.error.SignatureVerificationError:
+        print("[STRIPE ERROR] Invalid signature")
         raise HTTPException(status_code=400, detail="Invalid signature")
+    except Exception as e:
+        print(f"[STRIPE ERROR] Unexpected verification error: {e}")
+        # Catch-all during verification returns 400, not 500
+        raise HTTPException(status_code=400, detail="Webhook verification failed")
 
     # 2) Basic fields
     event_type = event.get("type", "")
