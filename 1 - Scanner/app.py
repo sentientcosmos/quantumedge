@@ -67,7 +67,11 @@ from collections import deque, Counter
 
 
 # Default product disclaimer (appears in every response/report).
+# Default product disclaimer (appears in every response/report).
 DISCLAIMER = "QubitGrid™ provides pre-audit readiness tools only; not a certified audit."
+
+# Shared SVG pattern for Enterprise Light UI
+CIRCUIT_SVG = 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' viewBox=\'0 0 100 100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' stroke=\'%234338ca\' stroke-width=\'0.8\'%3E%3Cpath d=\'M15 0v15l5 5h20M85 0v15l-5 5H60M15 100v-15l5-5h20M85 100v-15l-5-5H60\'/%3E%3Cpath d=\'M0 15h15l5 5v20M100 15h-15l-5 5v20M0 85h15l5-5v-20M100 85h-15l-5-5v-20\'/%3E%3Ccircle cx=\'50\' cy=\'50\' r=\'8\' stroke-width=\'0.5\'/%3E%3Ccircle cx=\'50\' cy=\'50\' r=\'4\' stroke-width=\'0.5\'/%3E%3Ccircle cx=\'50\' cy=\'50\' r=\'2\' fill=\'%234338ca\'/%3E%3Cpath d=\'M50 15v20M50 65v20M15 50h20M65 50h20\'/%3E%3Ccircle cx=\'15\' cy=\'15\' r=\'2\' fill=\'%234338ca\'/%3E%3Ccircle cx=\'85\' cy=\'15\' r=\'2\' fill=\'%234338ca\'/%3E%3Ccircle cx=\'15\' cy=\'85\' r=\'2\' fill=\'%234338ca\'/%3E%3Ccircle cx=\'85\' cy=\'85\' r=\'2\' fill=\'%234338ca\'/%3E%3Cpath d=\'M15 50h5l3-3h14l3 3M60 50h5l3-3h14l3 3M50 15v5l-3 3v14l3 3M50 60v5l-3 3v14l3 3\' opacity=\'0.7\'/%3E%3C/g%3E%3Cg fill=\'none\' stroke=\'%234338ca\' stroke-width=\'0.3\' opacity=\'0.4\'%3E%3Cpath d=\'M0 0l100 100M100 0l-100 100\'/%3E%3C/g%3E%3C/svg%3E")'
 
 # ------------------------------
 # App instance + global strings
@@ -1180,11 +1184,69 @@ def analytics_html(x_admin_token: str = Header(None)):
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>QubitGrid™ — Analytics</title>
 <style>
-  :root{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7}
-  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
-  .wrap{max-width:900px;margin:32px auto;padding:0 16px}
-  h1{margin:0 0 12px}
-  .card{background:#111827;border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+  :root{
+    /* Lovable Theme Tokens */
+    --background: 0 0% 100%;
+    --muted-token: 210 40% 96.1%;
+    --foreground: 222.2 84% 4.9%;
+
+    /* Enterprise Light Function Tokens */
+    --surface-bg: rgba(255, 255, 255, 0.88);
+    --surface-border: rgba(2, 6, 23, 0.08);
+    --surface-text: #0f172a;
+    --surface-muted: rgba(2, 6, 23, 0.70);
+    --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
+    --surface-radius: 16px;
+    --surface-pattern-opacity: 0.10;
+    --surface-pattern: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%234338ca' stroke-width='0.8'%3E%3Cpath d='M15 0v15l5 5h20M85 0v15l-5 5H60M15 100v-15l5-5h20M85 100v-15l-5-5H60'/%3E%3Cpath d='M0 15h15l5 5v20M100 15h-15l-5 5v20M0 85h15l5-5v-20M100 85h-15l-5-5v-20'/%3E%3Ccircle cx='50' cy='50' r='8' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='4' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='2' fill='%234338ca'/%3E%3Cpath d='M50 15v20M50 65v20M15 50h20M65 50h20'/%3E%3Ccircle cx='15' cy='15' r='2' fill='%234338ca'/%3E%3Ccircle cx='85' cy='15' r='2' fill='%234338ca'/%3E%3Ccircle cx='15' cy='85' r='2' fill='%234338ca'/%3E%3Ccircle cx='85' cy='85' r='2' fill='%234338ca'/%3E%3Cpath d='M15 50h5l3-3h14l3 3M60 50h5l3-3h14l3 3M50 15v5l-3 3v14l3 3M50 60v5l-3 3v14l3 3' opacity='0.7'/%3E%3C/g%3E%3Cg fill='none' stroke='%234338ca' stroke-width='0.3' opacity='0.4'%3E%3Cpath d='M0 0l100 100M100 0l-100 100'/%3E%3C/g%3E%3C/svg%3E");
+
+    --bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7
+  }
+  html,body{
+    margin:0;
+    min-height: 100%;
+    background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
+    background-attachment: fixed;
+    font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;
+  }
+  body::before{
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.10;
+    background-image: var(--surface-pattern);
+    background-size: 100px 100px;
+    z-index: 0;
+  }
+  .wrap{position:relative;z-index:1;max-width:900px;margin:32px auto;padding:0 16px}
+  h1{margin:0 0 12px;color:var(--accent)}
+  .card{
+    background:var(--surface-bg);
+    color:var(--surface-text);
+    border:1px solid var(--surface-border);
+    box-shadow:var(--surface-shadow);
+    border-radius:var(--surface-radius);
+    padding:16px;
+    margin:12px 0;
+    position:relative;
+    overflow:hidden;
+    backdrop-filter:blur(6px);
+  }
+  .card::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:var(--surface-pattern);
+    background-size:100px 100px;
+    opacity:var(--surface-pattern-opacity);
+    z-index:0;
+  }
+  .card > * {
+    position:relative;
+    z-index:1;
+  }
   .row{display:flex;gap:12px;flex-wrap:wrap}
   .pill{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:#c6d1de}
   table{width:100%;border-collapse:collapse;margin-top:8px}
@@ -1973,11 +2035,68 @@ def _buy_page_html(plan_label: str, plan_code: str) -> str:
 <meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>QubitGrid™ — {plan_label}</title>
 <style>
-  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7}}
-  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}}
-  .wrap{{max-width:720px;margin:40px auto;padding:0 16px}}
-  .card{{background:#111827;border:1px solid var(--line);border-radius:14px;padding:20px}}
-  h1{{margin:4px 0 10px}} p{{color:var(--muted)}}
+  :root{{
+    /* Lovable Theme Tokens */
+    --background: 0 0% 100%;
+    --muted-token: 210 40% 96.1%;
+    --foreground: 222.2 84% 4.9%;
+
+    /* Enterprise Light Function Tokens */
+    --surface-bg: rgba(255, 255, 255, 0.88);
+    --surface-border: rgba(2, 6, 23, 0.08);
+    --surface-text: #0f172a;
+    --surface-muted: rgba(2, 6, 23, 0.70);
+    --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
+    --surface-radius: 16px;
+    --surface-pattern-opacity: 0.10;
+    --surface-pattern: {CIRCUIT_SVG};
+
+    --bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7
+  }}
+  html,body{{
+    margin:0;
+    min-height: 100%;
+    background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
+    background-attachment: fixed;
+    font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;
+  }}
+  body::before{{
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.10;
+    background-image: var(--surface-pattern);
+    background-size: 100px 100px;
+    z-index: 0;
+  }}
+  .wrap{{position:relative;z-index:1;max-width:720px;margin:40px auto;padding:0 16px}}
+  .card{{
+    background:var(--surface-bg);
+    color:var(--surface-text);
+    border:1px solid var(--surface-border);
+    box-shadow:var(--surface-shadow);
+    border-radius:var(--surface-radius);
+    padding:20px;
+    position:relative;
+    overflow:hidden;
+    backdrop-filter:blur(6px);
+  }}
+  .card::before{{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:var(--surface-pattern);
+    background-size:100px 100px;
+    opacity:var(--surface-pattern-opacity);
+    z-index:0;
+  }}
+  .card > * {{
+    position:relative;
+    z-index:1;
+  }}
+  h1{{margin:4px 0 10px;color:var(--accent)}} p{{color:var(--surface-muted)}}
   label{{display:block;margin:12px 0 6px;font-size:13px;color:#c6d1de}}
   input{{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0d1116;color:var(--fg)}}
   .row{{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}}
@@ -2271,14 +2390,67 @@ def docs_page():
 <meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>QubitGrid™ — Developer Docs</title>
 <style>
-  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--panel:#111827}}
-  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;line-height:1.6}}
-  .wrap{{max-width:960px;margin:40px auto;padding:0 20px}}
-  header{{margin-bottom:40px;border-bottom:1px solid var(--line);padding-bottom:20px}}
-  h1{{font-size:28px;margin:0 0 10px}} h2{{font-size:22px;margin:40px 0 16px;border-bottom:1px solid var(--line);padding-bottom:8px;color:var(--fg)}} h3{{font-size:18px;margin:24px 0 10px;color:var(--accent)}}
-  p,li{{color:#c6d1de}} a{{color:#a7c5ff;text-decoration:none}}
-  code{{background:#0d1116;padding:2px 6px;border-radius:4px;font-family:monospace;border:1px solid var(--line);color:#eaccf5}}
-  pre{{background:#0d1116;border:1px solid var(--line);padding:16px;border-radius:8px;overflow-x:auto}}
+  :root{{
+    /* Lovable Theme Tokens */
+    --background: 0 0% 100%;
+    --muted-token: 210 40% 96.1%;
+    --foreground: 222.2 84% 4.9%;
+
+    /* Enterprise Light Function Tokens */
+    --surface-bg: rgba(255, 255, 255, 0.88);
+    --surface-border: rgba(2, 6, 23, 0.08);
+    --surface-text: #0f172a;
+    --surface-muted: rgba(2, 6, 23, 0.70);
+    --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
+    --surface-radius: 16px;
+    --surface-pattern-opacity: 0.10;
+    --surface-pattern: {CIRCUIT_SVG};
+
+    --bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--panel:#111827
+  }}
+  html,body{{
+    margin:0;
+    min-height: 100%;
+    background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
+    background-attachment: fixed;
+    font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;
+    line-height:1.6
+  }}
+  body::before{{
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.10;
+    background-image: var(--surface-pattern);
+    background-size: 100px 100px;
+    z-index: 0;
+  }}
+  .wrap{{position:relative;z-index:1;max-width:960px;margin:40px auto;padding:0 20px}}
+  header{{margin-bottom:40px;border-bottom:1px solid var(--surface-border);padding-bottom:20px}}
+  h1{{font-size:28px;margin:0 0 10px;color:var(--accent)}} h2{{font-size:22px;margin:40px 0 16px;border-bottom:1px solid var(--surface-border);padding-bottom:8px;color:var(--surface-text)}} h3{{font-size:18px;margin:24px 0 10px;color:var(--accent)}}
+  p,li{{color:var(--surface-text)}} a{{color:#0b5bd7;text-decoration:none}}
+  code{{background:#fff;color:var(--surface-text);padding:2px 6px;border-radius:4px;font-family:monospace;border:1px solid var(--surface-border);color:var(--surface-text)}}
+  pre{{background:#fff;color:var(--surface-text);border:1px solid var(--surface-border);padding:16px;border-radius:8px;overflow-x:auto}}
+  .note-banner{{
+    background:var(--surface-bg);
+    border:1px solid var(--surface-border);
+    border-radius:var(--surface-radius);
+    padding:12px;
+    margin:20px 0;
+    font-size:13px;
+    box-shadow:var(--surface-shadow);
+    color:var(--surface-text);
+    position:relative;
+    overflow:hidden;
+    backdrop-filter:blur(6px);
+  }}
+  .note-banner::before{{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:var(--surface-pattern);background-size:100px 100px;
+    opacity:var(--surface-pattern-opacity);z-index:0;
+  }}
+  .note-banner > * {{position:relative;z-index:1}}
   table{{width:100%;border-collapse:collapse;margin:20px 0}}
   th,td{{text-align:left;padding:12px;border-bottom:1px solid var(--line)}}
   th{{color:var(--muted);font-size:13px;text-transform:uppercase}}
@@ -2295,7 +2467,7 @@ def docs_page():
   <header>
     <h1>QubitGrid™ Developer Documentation</h1>
     <p>AI Prompt Injection & Safety Scanner API for LLM apps.</p>
-    <div style="background:#131c2e;border:1px solid #233044;padding:12px;border-radius:8px;margin:20px 0;font-size:13px">
+    <div class="note-banner">
       <strong>Note:</strong> The Home page provides a Free plan browser sandbox for testing prompts. Production integrations require an API key and use the endpoints below.
     </div>
   </header>
@@ -2418,14 +2590,73 @@ def quickstart_page():
 <meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>QubitGrid™ — Quickstart</title>
 <style>
-  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--panel:#111827}}
-  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;line-height:1.6}}
-  .wrap{{max-width:720px;margin:40px auto;padding:0 20px}}
-  h1{{font-size:28px;margin:0 0 6px}} .sub{{font-size:18px;color:var(--muted);margin-bottom:30px}}
-  .step{{background:var(--panel);border:1px solid var(--line);padding:24px;border-radius:12px;margin-bottom:20px}}
+  :root{{
+    /* Lovable Theme Tokens */
+    --background: 0 0% 100%;
+    --muted-token: 210 40% 96.1%;
+    --foreground: 222.2 84% 4.9%;
+
+    /* Enterprise Light Function Tokens */
+    --surface-bg: rgba(255, 255, 255, 0.88);
+    --surface-border: rgba(2, 6, 23, 0.08);
+    --surface-text: #0f172a;
+    --surface-muted: rgba(2, 6, 23, 0.70);
+    --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
+    --surface-radius: 16px;
+    --surface-pattern-opacity: 0.10;
+    --surface-pattern: {CIRCUIT_SVG};
+
+    --bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--panel:#111827
+  }}
+  html,body{{
+    margin:0;
+    min-height: 100%;
+    background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
+    background-attachment: fixed;
+    font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;
+    line-height:1.6
+  }}
+  body::before{{
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.10;
+    background-image: var(--surface-pattern);
+    background-size: 100px 100px;
+    z-index: 0;
+  }}
+  .wrap{{position:relative;z-index:1;max-width:720px;margin:40px auto;padding:0 20px}}
+  h1{{font-size:28px;margin:0 0 6px;color:var(--accent)}} .sub{{font-size:18px;color:var(--surface-muted);margin-bottom:30px}}
+  .step{{
+    background:var(--surface-bg);
+    color:var(--surface-text);
+    border:1px solid var(--surface-border);
+    box-shadow:var(--surface-shadow);
+    padding:24px;
+    border-radius:var(--surface-radius);
+    margin-bottom:20px;
+    position:relative;
+    overflow:hidden;
+    backdrop-filter:blur(6px);
+  }}
+  .step::before{{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:var(--surface-pattern);
+    background-size:100px 100px;
+    opacity:var(--surface-pattern-opacity);
+    z-index:0;
+  }}
+  .step > * {{
+    position:relative;
+    z-index:1;
+  }}
   .step h3{{margin-top:0;color:var(--accent)}}
-  code{{background:#0d1116;padding:2px 6px;border-radius:4px;font-family:monospace;border:1px solid var(--line);color:#eaccf5}}
-  pre{{background:#0d1116;border:1px solid var(--line);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px}}
+  code{{background:#fff;color:var(--surface-text);padding:2px 6px;border-radius:4px;font-family:monospace;border:1px solid var(--surface-border);color:var(--surface-text)}}
+  pre{{background:#fff;color:var(--surface-text);border:1px solid var(--surface-border);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px}}
   a{{color:#a7c5ff}}
   .btn{{display:inline-block;padding:8px 16px;background:var(--accent);color:#fff;text-decoration:none;border-radius:6px;font-weight:600}}
 </style>
@@ -2641,11 +2872,68 @@ def user_dashboard(request: Request):
 <meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>QubitGrid™ — Dashboard</title>
 <style>
-  :root{{--bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--success:#10b981;--danger:#ef4444}}
-  html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}}
-  .wrap{{max-width:600px;margin:40px auto;padding:0 16px}}
-  .card{{background:#111827;border:1px solid var(--line);border-radius:14px;padding:24px}}
-  h1{{margin:0 0 4px;font-size:20px}} h2{{margin:0 0 16px;font-size:14px;color:var(--muted);font-weight:400}}
+  :root{{
+    /* Lovable Theme Tokens */
+    --background: 0 0% 100%;
+    --muted-token: 210 40% 96.1%;
+    --foreground: 222.2 84% 4.9%;
+
+    /* Enterprise Light Function Tokens */
+    --surface-bg: rgba(255, 255, 255, 0.88);
+    --surface-border: rgba(2, 6, 23, 0.08);
+    --surface-text: #0f172a;
+    --surface-muted: rgba(2, 6, 23, 0.70);
+    --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
+    --surface-radius: 16px;
+    --surface-pattern-opacity: 0.10;
+    --surface-pattern: {CIRCUIT_SVG};
+
+    --bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--success:#10b981;--danger:#ef4444
+  }}
+  html,body{{
+    margin:0;
+    min-height: 100%;
+    background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
+    background-attachment: fixed;
+    font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;
+  }}
+  body::before{{
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.10;
+    background-image: var(--surface-pattern);
+    background-size: 100px 100px;
+    z-index: 0;
+  }}
+  .wrap{{position:relative;z-index:1;max-width:600px;margin:40px auto;padding:0 16px}}
+  .card{{
+    background:var(--surface-bg);
+    color:var(--surface-text);
+    border:1px solid var(--surface-border);
+    box-shadow:var(--surface-shadow);
+    border-radius:var(--surface-radius);
+    padding:24px;
+    position:relative;
+    overflow:hidden;
+    backdrop-filter:blur(6px);
+  }}
+  .card::before{{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:var(--surface-pattern);
+    background-size:100px 100px;
+    opacity:var(--surface-pattern-opacity);
+    z-index:0;
+  }}
+  .card > * {{
+    position:relative;
+    z-index:1;
+  }}
+  h1{{margin:0 0 4px;font-size:20px;color:var(--accent)}} h2{{margin:0 0 16px;font-size:14px;color:var(--surface-muted);font-weight:400}}
   .stat-row{{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:12px 0}}
   .stat-row:last-child{{border-bottom:none}}
   .label{{color:var(--muted);font-size:13px}}

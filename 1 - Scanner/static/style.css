@@ -6,14 +6,36 @@ blurred modals, smooth interactions, responsive grid.
 
 /* ============= Root Theme Variables ============= */
 :root {
-  --bg: #0d1117;          /* overall page background */
-  --card: #151a24;        /* card background */
-  --text: #e5e7eb;        /* primary text color */
-  --muted: #9ca3af;       /* secondary text */
-  --accent: #3b82f6;      /* primary brand blue */
-  --success: #10b981;     /* success (green) */
-  --error: #ef4444;       /* error (red) */
-  --border: rgba(255,255,255,0.08);
+  /* Lovable Theme Tokens */
+  --background: 0 0% 100%;
+  --muted: 210 40% 96.1%;
+  --foreground: 222.2 84% 4.9%;
+
+  /* Enterprise Light Function Tokens */
+  --surface-bg: rgba(255, 255, 255, 0.88);
+  --surface-border: rgba(2, 6, 23, 0.08);
+  --surface-text: #0f172a;
+  --surface-muted: rgba(2, 6, 23, 0.70);
+  --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
+  --surface-radius: 16px;
+  --surface-pattern-opacity: 0.10;
+  --circuit-svg: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%234338ca' stroke-width='0.8'%3E%3Cpath d='M15 0v15l5 5h20M85 0v15l-5 5H60M15 100v-15l5-5h20M85 100v-15l-5-5H60'/%3E%3Cpath d='M0 15h15l5 5v20M100 15h-15l-5 5v20M0 85h15l5-5v-20M100 85h-15l-5-5v-20'/%3E%3Ccircle cx='50' cy='50' r='8' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='4' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='2' fill='%234338ca'/%3E%3Cpath d='M50 15v20M50 65v20M15 50h20M65 50h20'/%3E%3Ccircle cx='15' cy='15' r='2' fill='%234338ca'/%3E%3Ccircle cx='85' cy='15' r='2' fill='%234338ca'/%3E%3Ccircle cx='15' cy='85' r='2' fill='%234338ca'/%3E%3Ccircle cx='85' cy='85' r='2' fill='%234338ca'/%3E%3Cpath d='M15 50h5l3-3h14l3 3M60 50h5l3-3h14l3 3M50 15v5l-3 3v14l3 3M50 60v5l-3 3v14l3 3' opacity='0.7'/%3E%3C/g%3E%3Cg fill='none' stroke='%234338ca' stroke-width='0.3' opacity='0.4'%3E%3Cpath d='M0 0l100 100M100 0l-100 100'/%3E%3C/g%3E%3C/svg%3E");
+
+  --bg: #0d1117;
+  /* overall page background */
+  --card: #151a24;
+  /* card background */
+  --text: #e5e7eb;
+  /* primary text color */
+  --muted-text: #9ca3af;
+  /* secondary text (renamed from --muted to avoid conflict if needed, or just let it coexist) */
+  --accent: #3b82f6;
+  /* primary brand blue */
+  --success: #10b981;
+  /* success (green) */
+  --error: #ef4444;
+  /* error (red) */
+  --border: rgba(255, 255, 255, 0.08);
 }
 
 /* ============= Global Reset ============= */
@@ -23,27 +45,65 @@ blurred modals, smooth interactions, responsive grid.
   padding: 0;
 }
 
+html,
 body {
-  background: var(--bg);
-  color: var(--text);
+  min-height: 100%;
+}
+
+body {
+  background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted) / 0.5));
+  background-attachment: fixed;
   font-family: "Inter", system-ui, sans-serif;
   letter-spacing: 0.02em;
   line-height: 1.5;
-  min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.10;
+  background-image: var(--circuit-svg);
+  background-size: 100px 100px;
+  z-index: 0;
 }
 
 /* ============= Cards & Containers ============= */
 .card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--surface-shadow);
+  color: var(--surface-text);
+  border-radius: var(--surface-radius);
   padding: 24px;
   margin: 16px;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--circuit-svg);
+  background-size: 100px 100px;
+  opacity: var(--surface-pattern-opacity);
+  z-index: 0;
+}
+
+.card>* {
+  position: relative;
+  z-index: 1;
 }
 
 /* Layout wrapper: two-column grid */
 .wrap {
+  position: relative;
+  /* Ensure above overlay */
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -53,13 +113,15 @@ body {
 
 .row {
   display: grid;
-  grid-template-columns: 2fr 1fr; /* main + sidebar */
+  grid-template-columns: 2fr 1fr;
+  /* main + sidebar */
   gap: 12px;
 }
 
 @media (max-width: 800px) {
   .row {
-    grid-template-columns: 1fr; /* stacks on mobile */
+    grid-template-columns: 1fr;
+    /* stacks on mobile */
   }
 }
 
@@ -69,13 +131,16 @@ header {
   justify-content: space-between;
   align-items: center;
   padding: 14px 32px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(21, 26, 36, 0.8);
+  border-bottom: 1px solid var(--surface-border);
+  background: var(--surface-bg);
   backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
   z-index: 10;
+  overflow: hidden;
 }
+
+/* No pattern on sticky header to avoid noise */
 
 nav a {
   color: var(--accent);
@@ -85,19 +150,21 @@ nav a {
 }
 
 nav a:hover {
-  color: var(--text);
+  color: var(--surface-text);
 }
 
 /* ============= Typography Helpers ============= */
+h1,
 .title {
   font-size: 20px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: var(--accent);
 }
 
 .subtitle {
   font-size: 14px;
-  color: var(--muted);
+  color: var(--surface-muted);
   margin-bottom: 12px;
 }
 
@@ -146,9 +213,9 @@ textarea,
 input {
   width: 100%;
   border-radius: 8px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--surface-border);
+  color: var(--surface-text);
   padding: 10px;
   margin-bottom: 10px;
 }
@@ -161,11 +228,11 @@ input:focus {
 
 /* ============= Results Box ============= */
 .dashed {
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--surface-muted);
   padding: 10px;
   border-radius: 8px;
   min-height: 40px;
-  color: var(--muted);
+  color: var(--surface-muted);
   font-size: 14px;
 }
 
@@ -203,22 +270,45 @@ input:focus {
 }
 
 .modal-content {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--surface-radius);
   padding: 24px;
   width: 350px;
-  box-shadow: 0 0 25px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--surface-shadow);
   animation: modalFade 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  color: var(--surface-text);
+  backdrop-filter: blur(6px);
+}
+
+.modal-content>* {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes modalFade {
-  from { opacity: 0; transform: scale(0.97); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Close icon */
 .modal-content::before {
+  /* Conflict with pattern? No, close icon is ::before on modal-content usually? 
+     Wait, lines 268 in original was .modal-content::before { content: "×" ... }
+     I cannot overwrite that if I want the close icon.
+     I should use .modal-content::after for the pattern or close icon.
+     Original code used ::before for "×".
+     I will use ::after for the pattern.
+  */
   content: "×";
   position: absolute;
   top: 16px;
@@ -226,7 +316,27 @@ input:focus {
   font-size: 20px;
   cursor: pointer;
   color: var(--muted);
+  z-index: 2;
+  /* Ensure above pattern */
+  background: none;
+  /* Reset pattern if needed */
+  opacity: 1;
+  width: auto;
+  height: auto;
 }
+
+/* Pattern on ::after so we don't break close icon */
+.modal-content::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--circuit-svg);
+  background-size: 100px 100px;
+  opacity: var(--surface-pattern-opacity);
+  z-index: 0;
+}
+
 
 /* ============= Banner ============= */
 .banner {
@@ -248,12 +358,16 @@ input:focus {
 .banner.error {
   background: var(--error);
 }
+
 /* >>> INSERT: BANNER INFO STYLE (BEGIN) */
 .banner.info {
-  background: #2563eb;   /* Tailwind-style blue-600 */
-  color: #eaf2ff;         /* soft light text for contrast */
+  background: #2563eb;
+  /* Tailwind-style blue-600 */
+  color: #eaf2ff;
+  /* soft light text for contrast */
   border: 1px solid #1d4ed8;
 }
+
 /* <<< INSERT: BANNER INFO STYLE (END) */
 
 
@@ -261,11 +375,12 @@ input:focus {
 footer {
   text-align: center;
   padding: 16px;
-  color: var(--muted);
+  color: var(--surface-muted);
   font-size: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--surface-border);
   margin-top: 20px;
 }
+
 /* >>> Pricing & Upgrades Styling (BEGIN) */
 .pricing-grid {
   display: flex;
@@ -275,17 +390,37 @@ footer {
 }
 
 .plan-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--surface-radius);
   padding: 14px 16px;
   transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(6px);
+}
+
+.plan-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--circuit-svg);
+  background-size: 100px 100px;
+  opacity: var(--surface-pattern-opacity);
+  z-index: 0;
+}
+
+.plan-card>* {
+  position: relative;
+  z-index: 1;
 }
 
 .plan-card h5 {
   margin-bottom: 6px;
   font-size: 16px;
-  color: var(--text);
+  color: var(--surface-text);
 }
 
 .plan-card .price {
@@ -297,12 +432,12 @@ footer {
 
 .plan-card .price span {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--surface-muted);
 }
 
 .plan-card ul {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--surface-muted);
   margin: 6px 0 12px 12px;
   line-height: 1.5;
 }
@@ -312,17 +447,51 @@ footer {
 }
 
 /* Hover glow per tier */
-.plan-card.indie:hover { border-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.3); }
-.plan-card.pro:hover { border-color: #8b5cf6; box-shadow: 0 0 10px rgba(139,92,246,0.3); }
-.plan-card.lifetime:hover { border-color: #fbbf24; box-shadow: 0 0 10px rgba(251,191,36,0.3); }
+.plan-card.indie:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
+.plan-card.pro:hover {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+}
+
+.plan-card.lifetime:hover {
+  border-color: #fbbf24;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
+}
+
 /* <<< Pricing & Upgrades Styling (END) */
 /* >>> Enhanced Scan Results Styling (BEGIN) */
 .results-section {
-  background: #121826;
-  border-radius: 12px;
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--surface-shadow);
+  border-radius: var(--surface-radius);
   padding: 1rem 1.25rem;
   margin-top: 1rem;
   animation: fadeInUp 0.4s ease;
+  position: relative;
+  overflow: hidden;
+  color: var(--surface-text);
+  backdrop-filter: blur(6px);
+}
+
+.results-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--circuit-svg);
+  background-size: 100px 100px;
+  opacity: var(--surface-pattern-opacity);
+  z-index: 0;
+}
+
+.results-section>* {
+  position: relative;
+  z-index: 1;
 }
 
 .result-header {
@@ -336,53 +505,63 @@ footer {
   font-size: 0.8rem;
   font-weight: 600;
   color: white;
-  background-color: #2563eb; /* default blue */
+  background-color: #2563eb;
+  /* default blue */
   padding: 0.25rem 0.6rem;
   border-radius: 0.5rem;
 }
 
 .result-summary {
   font-size: 0.9rem;
-  color: #d1d5db;
+  color: var(--surface-text);
 }
 
 .result-details summary {
-  color: #9ca3af;
+  color: var(--surface-muted);
   cursor: pointer;
   font-size: 0.85rem;
 }
 
 .result-details pre {
-  background-color: #0b101a;
+  background-color: #ffffff;
+  border: 1px solid var(--surface-border);
   border-radius: 0.5rem;
   padding: 0.75rem;
-  color: #d1d5db;
+  color: var(--surface-text);
   font-size: 0.8rem;
   overflow-x: auto;
 }
 
 .scan-log {
   margin-top: 1rem;
-  border-top: 1px solid #1e293b;
+  border-top: 1px solid var(--surface-border);
   padding-top: 0.5rem;
 }
 
 .scan-log h4 {
   font-size: 0.85rem;
-  color: #9ca3af;
+  color: var(--surface-muted);
   margin-bottom: 0.25rem;
 }
 
 .scan-log li {
   font-size: 0.8rem;
   margin: 0.15rem 0;
-  color: #d1d5db;
+  color: var(--surface-text);
 }
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 /* <<< Enhanced Scan Results Styling (END) */
 
 /* <<< QubitGrid™ Style System (END) */
