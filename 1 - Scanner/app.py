@@ -1784,6 +1784,15 @@ def _log_webhook_event(event_type: str, customer_id: str, email: str, payload: d
 @app.post("/stripe/webhook")
 async def stripe_webhook_listener(request: Request, background_tasks: BackgroundTasks):
     # 1) Verify signature
+    # Debug log (never print full secret)
+    has_secret = bool(STRIPE_WEBHOOK_SECRET)
+    print(f"[STRIPE WEBHOOK] Secret loaded? {has_secret} | Method=POST | Headers={dict(request.headers)}")
+
+    if not STRIPE_WEBHOOK_SECRET:
+        error_msg = f"Server configuration error: Missing Stripe Webhook Secret! Expected environment variable '{STRIPE_VAR_NAME}' is not set."
+        print(f"[CRITICAL] {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     try:

@@ -2,6 +2,7 @@ fastapi
 uvicorn
 pydantic
 python-multipart>=0.0.9
+python-dotenv
 
 # >>> INSERT: SECTION A (BEGIN)
 reportlab
