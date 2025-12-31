@@ -70,7 +70,9 @@ body::before {
 }
 
 /* ============= Cards & Containers ============= */
-.card {
+.card,
+.step,
+.note-banner {
   background: var(--surface-bg);
   border: 1px solid var(--surface-border);
   box-shadow: var(--surface-shadow);

@@ -2719,42 +2719,13 @@ def user_dashboard(request: Request):
 <head>
 <meta charset='utf-8'/><meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>QubitGrid™ — Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
 <style>
   :root{{
-    /* Lovable Theme Tokens */
-    --background: 0 0% 100%;
-    --muted-token: 210 40% 96.1%;
-    --foreground: 222.2 84% 4.9%;
-
-    /* Enterprise Light Function Tokens */
-    --surface-bg: rgba(255, 255, 255, 0.88);
-    --surface-border: rgba(2, 6, 23, 0.08);
-    --surface-text: #0f172a;
-    --surface-muted: rgba(2, 6, 23, 0.70);
-    --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
-    --surface-radius: 16px;
-    --surface-pattern-opacity: 0.10;
-    --surface-pattern: {CIRCUIT_SVG};
-
+    /* Dashboard specific tokens */
     --bg:#0b1220;--fg:#e8eef6;--muted:#9aa7b8;--line:#233044;--accent:#0b5bd7;--success:#10b981;--danger:#ef4444
   }}
-  html,body{{
-    margin:0;
-    min-height: 100%;
-    background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
-    background-attachment: fixed;
-    font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;
-  }}
-  body::before{{
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.10;
-    background-image: var(--surface-pattern);
-    background-size: 100px 100px;
-    z-index: 0;
-  }}
+  /* html, body, body::before handled by global style.css */
   .wrap{{position:relative;z-index:1;max-width:600px;margin:40px auto;padding:0 16px}}
   .card{{
     background:var(--surface-bg);
@@ -2765,8 +2736,8 @@ def user_dashboard(request: Request):
     padding:24px;
     position:relative;
     overflow:hidden;
-    backdrop-filter:blur(10px);
-    -webkit-backdrop-filter:blur(10px);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
   }}
   .card::before{{
     display: none;
