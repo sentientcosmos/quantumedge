@@ -7,88 +7,14 @@
   <title>QubitGrid™ — Roadmap</title>
 
   <!-- >>> INSERT: CORE DARK THEME (BEGIN) -->
+  <link rel="stylesheet" href="/static/style.css">
   <style>
-    :root {
-      --bg: #0b1220;
-      --panel: #111827;
-      --fg: #e8eef6;
-      --muted: #9aa7b8;
-      --line: #233044;
-      --accent: #0b5bd7;
-      --accent-600: #0a51c2;
-      --focus: #93c5fd;
-      --chip-ok: #10b981;
-      --chip-warn: #f59e0b;
-      --chip-danger: #ef4444;
-      --chip-team: #2563eb;
-      --chip-enterprise: #6b7280;
-      --chip-indie: #6366f1;
-      --chip-pro: #f59e0b;
-
-      /* Lovable Theme Tokens */
-      --background: 0 0% 100%;
-      --muted-token: 210 40% 96.1%;
-      --foreground: 222.2 84% 4.9%;
-
-      /* Enterprise Light Function Tokens */
-      --surface-bg: rgba(255, 255, 255, 0.88);
-      --surface-border: rgba(2, 6, 23, 0.08);
-      --surface-text: #0f172a;
-      --surface-muted: rgba(2, 6, 23, 0.70);
-      --surface-shadow: 0 14px 40px rgba(2, 6, 23, 0.10);
-      --surface-radius: 16px;
-      --surface-pattern-opacity: 0.10;
-      --circuit-svg: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%234338ca' stroke-width='0.8'%3E%3Cpath d='M15 0v15l5 5h20M85 0v15l-5 5H60M15 100v-15l5-5h20M85 100v-15l-5-5H60'/%3E%3Cpath d='M0 15h15l5 5v20M100 15h-15l-5 5v20M0 85h15l5-5v-20M100 85h-15l-5-5v-20'/%3E%3Ccircle cx='50' cy='50' r='8' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='4' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='2' fill='%234338ca'/%3E%3Cpath d='M50 15v20M50 65v20M15 50h20M65 50h20'/%3E%3Ccircle cx='15' cy='15' r='2' fill='%234338ca'/%3E%3Ccircle cx='85' cy='15' r='2' fill='%234338ca'/%3E%3Ccircle cx='15' cy='85' r='2' fill='%234338ca'/%3E%3Ccircle cx='85' cy='85' r='2' fill='%234338ca'/%3E%3Cpath d='M15 50h5l3-3h14l3 3M60 50h5l3-3h14l3 3M50 15v5l-3 3v14l3 3M50 60v5l-3 3v14l3 3' opacity='0.7'/%3E%3C/g%3E%3Cg fill='none' stroke='%234338ca' stroke-width='0.3' opacity='0.4'%3E%3Cpath d='M0 0l100 100M100 0l-100 100'/%3E%3C/g%3E%3C/svg%3E");
-    }
-
-    html,
-    body {
-      min-height: 100%;
-    }
-
-    body {
-      margin: 0;
-      background-image: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--muted-token) / 0.5));
-      background-attachment: fixed;
-      font-family: Inter, system-ui, Segoe UI, Arial, sans-serif;
-      letter-spacing: 0.02em;
-      line-height: 1.5;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0.10;
-      background-image: var(--circuit-svg);
-      background-size: 100px 100px;
-      z-index: 0;
-    }
-
-    a {
-      color: #0b5bd7;
-      text-decoration: none
-    }
-
-    a:hover {
-      text-decoration: underline
-    }
-
-    .wrap {
-      position: relative;
-      z-index: 1;
-      max-width: 1160px;
-      margin: 40px auto;
-      padding: 0 16px
-    }
-
+    /* Page-specific overrides */
     .head {
       background: var(--surface-bg);
       border-bottom: 1px solid var(--surface-border);
       padding: 16px;
       margin: -16px -16px 24px -16px;
-      /* pull out to edges if needed, or just standard box */
       border-radius: var(--surface-radius);
       display: flex;
       justify-content: space-between;
@@ -96,17 +22,12 @@
       margin-bottom: 18px;
       position: relative;
       overflow: hidden;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
 
     .head::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background-image: var(--circuit-svg);
-      background-size: 100px 100px;
-      opacity: var(--surface-pattern-opacity);
-      z-index: 0;
+      display: none;
     }
 
     .head>* {
@@ -141,34 +62,6 @@
       padding: 6px 8px;
       border-radius: 8px;
       color: var(--accent);
-    }
-
-    .card {
-      background: var(--surface-bg);
-      color: var(--surface-text);
-      border: 1px solid var(--surface-border);
-      box-shadow: var(--surface-shadow);
-      border-radius: var(--surface-radius);
-      padding: 18px;
-      margin: 18px 0;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .card::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background-image: var(--circuit-svg);
-      background-size: 100px 100px;
-      opacity: var(--surface-pattern-opacity);
-      z-index: 0;
-    }
-
-    .card>* {
-      position: relative;
-      z-index: 1;
     }
 
     .grid {
@@ -301,6 +194,7 @@
       height: 100%;
       background: rgba(0, 0, 0, 0.45);
       backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(10px);
       display: none;
       align-items: center;
       justify-content: center;
@@ -322,14 +216,7 @@
     }
 
     .modal::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background-image: var(--circuit-svg);
-      background-size: 100px 100px;
-      opacity: var(--surface-pattern-opacity);
-      z-index: 0;
+      display: none;
     }
 
     .modal>* {
