@@ -2483,16 +2483,7 @@ def quickstart_page():
   .wrap{{position:relative;z-index:1;max-width:720px;margin:40px auto;padding:0 20px}}
   h1{{font-size:28px;margin:0 0 6px;color:var(--accent)}} .sub{{font-size:18px;color:var(--surface-muted);margin-bottom:30px}}
   .step{{
-    background:var(--surface-bg);
-    border:1px solid var(--surface-border);
-    box-shadow:var(--surface-shadow);
-    padding:24px;
-    border-radius:var(--surface-radius);
     margin-bottom:20px;
-    position:relative;
-    overflow:hidden;
-    backdrop-filter:blur(12px);
-    -webkit-backdrop-filter:blur(12px);
     display: block;
   }}
   .step::before{{
@@ -2727,25 +2718,6 @@ def user_dashboard(request: Request):
   }}
   /* html, body, body::before handled by global style.css */
   .wrap{{position:relative;z-index:1;max-width:600px;margin:40px auto;padding:0 16px}}
-  .card{{
-    background:var(--surface-bg);
-    color:var(--surface-text);
-    border:1px solid var(--surface-border);
-    box-shadow:var(--surface-shadow);
-    border-radius:var(--surface-radius);
-    padding:24px;
-    position:relative;
-    overflow:hidden;
-    backdrop-filter:blur(12px);
-    -webkit-backdrop-filter:blur(12px);
-  }}
-  .card::before{{
-    display: none;
-  }}
-  .card > * {{
-    position:relative;
-    z-index:1;
-  }}
   h1{{margin:0 0 4px;font-size:20px;color:var(--accent)}} h2{{margin:0 0 16px;font-size:14px;color:var(--surface-muted);font-weight:400}}
   .stat-row{{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:12px 0}}
   .stat-row:last-child{{border-bottom:none}}
