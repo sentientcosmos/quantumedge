@@ -561,12 +561,16 @@ pre {
   position: sticky;
   top: 0;
   z-index: 50;
+  flex-wrap: wrap;
+  /* Allow wrapping on small screens */
+  gap: 12px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  /* Requested gap 10px */
   text-decoration: none;
 }
 
@@ -574,11 +578,14 @@ pre {
   height: 28px;
   width: auto;
   border-radius: 6px;
+  display: block;
+  /* Requested display: block */
 }
 
 .brand-name {
   font-size: 18px;
   font-weight: 700;
+  /* Requested 700 */
   color: var(--surface-text);
   letter-spacing: -0.02em;
 }
@@ -586,6 +593,7 @@ pre {
 .site-nav {
   display: flex;
   gap: 24px;
+  align-items: center;
 }
 
 .site-nav a {
@@ -594,11 +602,23 @@ pre {
   font-weight: 500;
   color: var(--surface-muted);
   transition: color 0.2s ease;
+  white-space: nowrap;
 }
 
 .site-nav a:hover,
 .site-nav a.active {
   color: var(--accent);
+}
+
+@media (max-width: 480px) {
+  .site-header {
+    justify-content: center;
+  }
+
+  .brand-name {
+    display: none;
+    /* Auto-hide name on very small screens */
+  }
 }
 
 /* <<< QubitGrid™ Style System (END) */

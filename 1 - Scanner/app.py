@@ -2028,6 +2028,19 @@ def _buy_page_html(plan_label: str, plan_code: str) -> str:
 </style>
 </head>
 <body>
+  <header class="card header site-header">
+    <a class="brand" href="/" aria-label="QubitGrid Home">
+      <img class="brand-mark" src="/static/img/qubitgrid-mark.jpg" alt="QubitGrid" />
+      <span class="brand-name">QubitGrid™</span>
+    </a>
+    <nav class="site-nav">
+      <a href="/" data-nav="home">Home</a>
+      <a href="/roadmap" data-nav="roadmap">Roadmap</a>
+      <a href="/roadmap#pricing" data-nav="pricing">Pricing</a>
+      <a href="/docs" data-nav="docs">Docs</a>
+      <a href="/quickstart" data-nav="quickstart">Quickstart</a>
+    </nav>
+  </header>
   <div class="wrap">
     <div class="card">
       <h1>{plan_label}</h1>
@@ -2347,10 +2360,20 @@ def docs_page():
 </style>
 </head>
 <body>
+<header class="card header site-header">
+  <a class="brand" href="/" aria-label="QubitGrid Home">
+    <img class="brand-mark" src="/static/img/qubitgrid-mark.jpg" alt="QubitGrid" />
+    <span class="brand-name">QubitGrid™</span>
+  </a>
+  <nav class="site-nav">
+    <a href="/" data-nav="home">Home</a>
+    <a href="/roadmap" data-nav="roadmap">Roadmap</a>
+    <a href="/roadmap#pricing" data-nav="pricing">Pricing</a>
+    <a href="/docs" data-nav="docs">Docs</a>
+    <a href="/quickstart" data-nav="quickstart">Quickstart</a>
+  </nav>
+</header>
 <div class="wrap">
-  <div class="nav">
-    <a href="/">Home</a> <a href="/dashboard">Dashboard</a> <a href="/roadmap">Roadmap</a>
-  </div>
   <header>
     <h1>QubitGrid™ Developer Documentation</h1>
     <p>AI Prompt Injection & Safety Scanner API for LLM apps.</p>
@@ -2501,8 +2524,20 @@ def quickstart_page():
 </style>
 </head>
 <body>
+<header class="card header site-header">
+  <a class="brand" href="/" aria-label="QubitGrid Home">
+    <img class="brand-mark" src="/static/img/qubitgrid-mark.jpg" alt="QubitGrid" />
+    <span class="brand-name">QubitGrid™</span>
+  </a>
+  <nav class="site-nav">
+    <a href="/" data-nav="home">Home</a>
+    <a href="/roadmap" data-nav="roadmap">Roadmap</a>
+    <a href="/roadmap#pricing" data-nav="pricing">Pricing</a>
+    <a href="/docs" data-nav="docs">Docs</a>
+    <a href="/quickstart" data-nav="quickstart">Quickstart</a>
+  </nav>
+</header>
 <div class="wrap">
-  <div style="margin-bottom:20px;font-size:14px"><a href="/">← Home</a></div>
   <h1>QubitGrid™ Quickstart</h1>
   <p class="sub" style="margin-bottom:16px">Go from zero to first scan in under 2 minutes.</p>
   <p style="margin-bottom:30px;font-size:13px;color:#8ba2b8">
@@ -2737,6 +2772,19 @@ def user_dashboard(request: Request):
 </style>
 </head>
 <body>
+  <header class="card header site-header">
+    <a class="brand" href="/" aria-label="QubitGrid Home">
+      <img class="brand-mark" src="/static/img/qubitgrid-mark.jpg" alt="QubitGrid" />
+      <span class="brand-name">QubitGrid™</span>
+    </a>
+    <nav class="site-nav">
+      <a href="/" data-nav="home">Home</a>
+      <a href="/roadmap" data-nav="roadmap">Roadmap</a>
+      <a href="/roadmap#pricing" data-nav="pricing">Pricing</a>
+      <a href="/docs" data-nav="docs">Docs</a>
+      <a href="/quickstart" data-nav="quickstart">Quickstart</a>
+    </nav>
+  </header>
   <div class="wrap">
     <div class="card">
       <h1>My Subscription</h1>
